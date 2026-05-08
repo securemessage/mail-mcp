@@ -104,7 +104,8 @@ class InstanceManager
 
 		if (!isset($this->imapClients[$name])) {
 			$config = $this->getConfig($name);
-			$client = new SocketImapClient($config['timeout'] ?? 30);
+			$verifySsl = $config['verify_ssl'] ?? true;
+			$client = new SocketImapClient($config['timeout'] ?? 30, $verifySsl);
 			$this->imapClients[$name] = $client;
 		}
 
@@ -123,7 +124,8 @@ class InstanceManager
 
 		if (!isset($this->smtpClients[$name])) {
 			$config = $this->getConfig($name);
-			$client = new SocketSmtpClient($config['timeout'] ?? 30);
+			$verifySsl = $config['verify_ssl'] ?? true;
+			$client = new SocketSmtpClient($config['timeout'] ?? 30, $verifySsl);
 			$this->smtpClients[$name] = $client;
 		}
 
@@ -172,10 +174,13 @@ class InstanceManager
 		$config = $this->getConfig($name);
 		$client = $this->getSmtpClient($name);
 
+		// smtp_tls overrides tls for SMTP (587=STARTTLS needs tls=false, 465=implicit needs tls=true)
+		$smtpTls = $config['smtp_tls'] ?? $config['tls'] ?? true;
+
 		$client->connect(
 			$config['smtp_host'],
 			$config['smtp_port'] ?? 465,
-			$config['tls'] ?? true
+			$smtpTls
 		);
 
 		$authType = $config['auth_type'] ?? 'basic';

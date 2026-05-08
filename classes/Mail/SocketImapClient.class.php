@@ -33,12 +33,17 @@ class SocketImapClient implements ImapClientInterface
 	/** @var int Socket timeout in seconds */
 	private int $timeout = 30;
 
+	/** @var bool Whether to verify SSL peer certificate */
+	private bool $verifySsl = true;
+
 	/**
-	 * @param int $timeout Socket timeout in seconds
+	 * @param int  $timeout   Socket timeout in seconds
+	 * @param bool $verifySsl Verify SSL peer certificate (disable for self-signed)
 	 */
-	public function __construct(int $timeout = 30)
+	public function __construct(int $timeout = 30, bool $verifySsl = true)
 	{
 		$this->timeout = $timeout;
+		$this->verifySsl = $verifySsl;
 	}
 
 	public function connect(string $host, int $port, bool $tls = true): void
@@ -49,8 +54,9 @@ class SocketImapClient implements ImapClientInterface
 
 		$context = stream_context_create([
 			'ssl' => [
-				'verify_peer' => true,
-				'verify_peer_name' => true,
+				'verify_peer' => $this->verifySsl,
+				'verify_peer_name' => $this->verifySsl,
+				'allow_self_signed' => !$this->verifySsl,
 			],
 		]);
 
@@ -512,6 +518,10 @@ class SocketImapClient implements ImapClientInterface
 	/**
 	 * Parse FETCH responses into Message objects.
 	 *
+	 * The command() method already reads literal data and appends it to
+	 * the untagged line (after the {N}\r\n marker), so we just need to
+	 * extract inline literal content from the response string.
+	 *
 	 * @param  string[] $untagged  Untagged response lines
 	 * @param  bool     $fullBody  Whether to parse body content
 	 * @return Message[]
@@ -519,91 +529,83 @@ class SocketImapClient implements ImapClientInterface
 	private function parseFetchResponses(array $untagged, bool $fullBody = false): array
 	{
 		$messages = [];
-		$currentMsg = null;
-		$headerBlock = '';
-		$bodyData = '';
-		$inHeaders = false;
-		$inBody = false;
 
 		foreach ($untagged as $line) {
 			// * N FETCH (...)
-			if (preg_match('/^\* \d+ FETCH \(/i', $line)) {
-				// Save previous message
-				if ($currentMsg !== null) {
-					$this->applyHeaders($currentMsg, $headerBlock);
-					if ($fullBody && !empty($bodyData)) {
-						$this->parseBody($currentMsg, $bodyData);
-					}
-					$messages[] = $currentMsg;
-				}
-
-				$currentMsg = new Message();
-				$currentMsg->mailbox = $this->currentMailbox ?? '';
-				$headerBlock = '';
-				$bodyData = '';
-
-				// Extract UID
-				if (preg_match('/UID (\d+)/i', $line, $m)) {
-					$currentMsg->uid = (int) $m[1];
-				}
-
-				// Extract FLAGS
-				if (preg_match('/FLAGS \(([^)]*)\)/i', $line, $m)) {
-					$currentMsg->flags = !empty($m[1]) ? preg_split('/\s+/', $m[1]) : [];
-				}
-
-				// Extract RFC822.SIZE
-				if (preg_match('/RFC822\.SIZE (\d+)/i', $line, $m)) {
-					$currentMsg->size = (int) $m[1];
-				}
-
-				// Extract BODYSTRUCTURE for attachments
-				if (preg_match('/BODYSTRUCTURE \((.+)\)/i', $line, $m)) {
-					$currentMsg->attachments = $this->parseBodyStructure($m[1]);
-				}
-
-				// Check if literal follows for headers or body
-				if (preg_match('/\{(\d+)\}$/', $line, $m)) {
-					$size = (int) $m[1];
-					$literalContent = $this->readBytes($size);
-					$this->readLine(); // closing paren
-
-					if ($fullBody) {
-						$bodyData = $literalContent;
-					} else {
-						$headerBlock = $literalContent;
-					}
-				}
-
+			if (!preg_match('/^\* \d+ FETCH \(/i', $line)) {
 				continue;
 			}
 
-			// Continuation of header/body data in current fetch
-			if ($currentMsg !== null) {
-				if (preg_match('/\{(\d+)\}$/', $line, $m)) {
-					$size = (int) $m[1];
-					$data = $this->readBytes($size);
-					$this->readLine(); // closing paren
+			$msg = new Message();
+			$msg->mailbox = $this->currentMailbox ?? '';
 
-					if ($fullBody && empty($headerBlock)) {
-						$bodyData = $data;
-					} else {
-						$headerBlock .= $data;
+			// Extract UID
+			if (preg_match('/UID (\d+)/i', $line, $m)) {
+				$msg->uid = (int) $m[1];
+			}
+
+			// Extract FLAGS
+			if (preg_match('/FLAGS \(([^)]*)\)/i', $line, $m)) {
+				$msg->flags = !empty($m[1]) ? preg_split('/\s+/', $m[1]) : [];
+			}
+
+			// Extract RFC822.SIZE
+			if (preg_match('/RFC822\.SIZE (\d+)/i', $line, $m)) {
+				$msg->size = (int) $m[1];
+			}
+
+			// Extract BODYSTRUCTURE for attachments
+			if (preg_match('/BODYSTRUCTURE \((.+)\)\s*(?:BODY|$)/i', $line, $m)) {
+				$msg->attachments = $this->parseBodyStructure($m[1]);
+			}
+
+			// Extract literal data (headers or body) after {N}\r\n
+			// The command() method appends literal data inline: "...{171}\r\nactual data here..."
+			$literalData = $this->extractLiteral($line);
+			if ($literalData !== null) {
+				if ($fullBody) {
+					// BODY[] returns full RFC 2822 message — split headers from body
+					$splitPos = strpos($literalData, "\r\n\r\n");
+					if ($splitPos === false) {
+						$splitPos = strpos($literalData, "\n\n");
 					}
+					if ($splitPos !== false) {
+						$headerPart = substr($literalData, 0, $splitPos);
+						$this->applyHeaders($msg, $headerPart);
+					}
+					$this->parseBody($msg, $literalData);
+				} else {
+					// Headers-only fetch (HEADER.FIELDS)
+					$this->applyHeaders($msg, $literalData);
 				}
 			}
-		}
 
-		// Don't forget the last message
-		if ($currentMsg !== null) {
-			$this->applyHeaders($currentMsg, $headerBlock);
-			if ($fullBody && !empty($bodyData)) {
-				$this->parseBody($currentMsg, $bodyData);
-			}
-			$messages[] = $currentMsg;
+			$messages[] = $msg;
 		}
 
 		return $messages;
+	}
+
+	/**
+	 * Extract the first literal block from a FETCH response line.
+	 *
+	 * Looks for {N}\r\n pattern and returns the N bytes after it.
+	 *
+	 * @param  string $line Response line with inline literal
+	 * @return string|null  Literal content, or null if none found
+	 */
+	private function extractLiteral(string $line): ?string
+	{
+		// Find {N}\r\n pattern
+		if (!preg_match('/\{(\d+)\}\r\n/', $line, $m)) {
+			return null;
+		}
+
+		$size = (int) $m[1];
+		$markerPos = strpos($line, $m[0]);
+		$dataStart = $markerPos + strlen($m[0]);
+
+		return substr($line, $dataStart, $size);
 	}
 
 	/**

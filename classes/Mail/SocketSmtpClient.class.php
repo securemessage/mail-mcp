@@ -30,12 +30,17 @@ class SocketSmtpClient implements SmtpClientInterface
 	/** @var int Socket timeout in seconds */
 	private int $timeout = 30;
 
+	/** @var bool Whether to verify SSL peer certificate */
+	private bool $verifySsl = true;
+
 	/**
-	 * @param int $timeout Socket timeout in seconds
+	 * @param int  $timeout   Socket timeout in seconds
+	 * @param bool $verifySsl Verify SSL peer certificate (disable for self-signed)
 	 */
-	public function __construct(int $timeout = 30)
+	public function __construct(int $timeout = 30, bool $verifySsl = true)
 	{
 		$this->timeout = $timeout;
+		$this->verifySsl = $verifySsl;
 	}
 
 	public function connect(string $host, int $port, bool $tls = true): void
@@ -46,8 +51,9 @@ class SocketSmtpClient implements SmtpClientInterface
 
 		$context = stream_context_create([
 			'ssl' => [
-				'verify_peer' => true,
-				'verify_peer_name' => true,
+				'verify_peer' => $this->verifySsl,
+				'verify_peer_name' => $this->verifySsl,
+				'allow_self_signed' => !$this->verifySsl,
 			],
 		]);
 
@@ -227,6 +233,12 @@ class SocketSmtpClient implements SmtpClientInterface
 		if ($response['code'] !== 220) {
 			throw new \RuntimeException("STARTTLS failed: {$response['message']}");
 		}
+
+		// Set SSL context options for the upgrade
+		stream_context_set_option($this->socket, 'ssl', 'verify_peer', $this->verifySsl);
+		stream_context_set_option($this->socket, 'ssl', 'verify_peer_name', $this->verifySsl);
+		stream_context_set_option($this->socket, 'ssl', 'allow_self_signed', !$this->verifySsl);
+		stream_context_set_option($this->socket, 'ssl', 'peer_name', $host);
 
 		$result = stream_socket_enable_crypto(
 			$this->socket,
