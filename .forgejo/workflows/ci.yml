@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: FreeBSD
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth=1 ${{ github.server_url }}/${{ github.repository }}.git .
+          git checkout ${{ github.sha }}
+
+      - name: Install dependencies
+        run: doas pkg install -y phpunit11-php84
+
+      - name: Syntax check
+        run: |
+          find classes/ tools/ bin/ system/ includes/ -name '*.php' -exec php -l {} \; | grep -v "No syntax errors" && exit 1 || true
+
+      - name: Run tests
+        run: phpunit

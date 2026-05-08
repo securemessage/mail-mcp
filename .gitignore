@@ -2,3 +2,4 @@ config/instances.json
 temp/
 *.phar
 .env
+.phpunit.cache/
