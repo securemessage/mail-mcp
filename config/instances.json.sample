@@ -1,0 +1,30 @@
+{
+    "default": "personal",
+    "instances": {
+        "personal": {
+            "description": "Personal email",
+            "imap_host": "imap.example.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 465,
+            "username": "user@example.com",
+            "password": "your-password-or-app-password",
+            "tls": true
+        },
+        "work-gmail": {
+            "description": "Work Gmail (OAuth)",
+            "imap_host": "imap.gmail.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 465,
+            "auth_type": "xoauth2",
+            "username": "user@company.com",
+            "oauth_client_id": "xxxxx.apps.googleusercontent.com",
+            "oauth_client_secret": "GOCSPX-xxxxx",
+            "oauth_authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "oauth_token_url": "https://oauth2.googleapis.com/token",
+            "oauth_scopes": "https://mail.google.com/",
+            "tls": true
+        }
+    }
+}

@@ -1,0 +1,107 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Mail MCP Server — stdio Entry Point
+ *
+ * Multi-instance IMAP/SMTP email management via the Model Context Protocol.
+ * Communicates over stdin/stdout using JSON-RPC 2.0.
+ *
+ * Usage:
+ *   php bin/mail-mcp
+ *
+ * Environment:
+ *   MAIL_MCP_CONFIG  Path to instances.json configuration file
+ *
+ * @package    MailMCP
+ * @author     Daniel Morante
+ * @copyright  2026 The Daniel Morante Company, Inc.
+ * @license    BSD-2-Clause
+ */
+
+// Enchilada Framework bootstrap
+chdir(dirname(__DIR__));
+require_once 'system/bootstrap.inc.php';
+
+use EnchiladaMCP\McpServer;
+use EnchiladaMCP\StdioTransport;
+use Mail\InstanceManager;
+
+// --- Configuration ---
+
+$configPath = getenv('MAIL_MCP_CONFIG') ?: null;
+
+// Check CLI argument: --config=/path/to/instances.json
+foreach ($argv ?? [] as $arg) {
+	if (str_starts_with($arg, '--config=')) {
+		$configPath = substr($arg, 9);
+	}
+}
+
+// Default config location
+if ($configPath === null) {
+	$candidates = [
+		APPLICATION_CONFDIR . 'instances.json',
+		getenv('HOME') . '/.config/mail-mcp/instances.json',
+		'/usr/local/etc/mail-mcp/instances.json',
+	];
+	foreach ($candidates as $candidate) {
+		if (file_exists($candidate)) {
+			$configPath = $candidate;
+			break;
+		}
+	}
+}
+
+if ($configPath === null || !file_exists($configPath)) {
+	fwrite(STDERR, "[mail-mcp] ERROR: No configuration file found.\n");
+	fwrite(STDERR, "  Set MAIL_MCP_CONFIG environment variable or use --config=/path/to/instances.json\n");
+	fwrite(STDERR, "  Or place instances.json in config/ directory.\n");
+	exit(1);
+}
+
+// --- Bootstrap ---
+
+function debug(string $message): void
+{
+	fwrite(STDERR, "[mail-mcp] " . $message . "\n");
+}
+
+try {
+	$manager = InstanceManager::fromFile($configPath);
+} catch (\Exception $e) {
+	fwrite(STDERR, "[mail-mcp] ERROR: " . $e->getMessage() . "\n");
+	exit(1);
+}
+
+$instanceCount = $manager->count();
+debug("Loaded {$instanceCount} instance(s) from {$configPath} (default: {$manager->getDefault()})");
+
+// --- Create MCP Server ---
+
+$server = new McpServer(APPLICATION_SLUG, APPLICATION_VERSION);
+
+// Load instructions
+$instructionsFile = APPLICATION_CONFDIR . 'instructions.txt';
+if (file_exists($instructionsFile)) {
+	$server->setInstructions(file_get_contents($instructionsFile));
+}
+
+// Register tools
+$toolFiles = glob(APPLICATION_ROOT . 'tools/*.php');
+foreach ($toolFiles as $toolFile) {
+	$className = basename($toolFile, '.php');
+	if (class_exists($className)) {
+		$server->register(new $className($manager));
+		debug("Registered tools: {$className}");
+	}
+}
+
+debug("MCP server started (stdio transport)");
+
+// --- Run ---
+
+$transport = new StdioTransport($server);
+$transport->setLogger('debug');
+$transport->run();
+
+debug("MCP server stopped");

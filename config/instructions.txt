@@ -1,0 +1,1 @@
+Mail MCP server for IMAP and SMTP email operations. Use mail_list_instances to see configured accounts. Use mail_connect to establish connections before performing operations. All tools accept an optional instance parameter to target a specific account. Use mail_search with flexible filters (from, to, subject, body, date, flags) instead of multiple specialized search tools.
