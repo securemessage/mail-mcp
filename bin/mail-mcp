@@ -86,12 +86,16 @@ if (file_exists($instructionsFile)) {
 }
 
 // Register tools
-$toolFiles = glob(APPLICATION_ROOT . 'tools/*.php');
-foreach ($toolFiles as $toolFile) {
-	$className = basename($toolFile, '.php');
-	if (class_exists($className)) {
-		$server->register(new $className($manager));
-		debug("Registered tools: {$className}");
+$toolDir = APPLICATION_ROOT . 'tools';
+if (is_dir($toolDir)) {
+	foreach (scandir($toolDir) as $entry) {
+		if (substr($entry, -4) !== '.php') continue;
+		$className = basename($entry, '.php');
+		require_once $toolDir . DIRECTORY_SEPARATOR . $entry;
+		if (class_exists($className, false)) {
+			$server->register(new $className($manager));
+			debug("Registered tools: {$className}");
+		}
 	}
 }
 

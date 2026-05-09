@@ -25,8 +25,6 @@ if (ini_get('phar.readonly')) {
 $baseDir    = dirname(__DIR__);
 $pharName   = 'mail-mcp.phar';
 $pharPath   = $baseDir . '/' . $pharName;
-$slug       = 'mail-mcp';
-$envVar     = 'MAIL_MCP_CONFIG';
 $entryPoint = 'bin/mail-mcp';
 
 // Directories to include in the PHAR
@@ -67,8 +65,12 @@ foreach ($includeDirs as $dir) {
 	}
 }
 
-// Add entry point
-$phar->addFile($baseDir . '/' . $entryPoint, $entryPoint);
+// Add entry point (strip shebang so require_once doesn't output it)
+$entrySource = file_get_contents($baseDir . '/' . $entryPoint);
+if (str_starts_with($entrySource, '#!')) {
+	$entrySource = substr($entrySource, strpos($entrySource, "\n") + 1);
+}
+$phar->addFromString($entryPoint, $entrySource);
 $fileCount++;
 
 // Add extra files
@@ -80,111 +82,24 @@ foreach ($extraFiles as $f) {
 	}
 }
 
-// ── Discover tool classes at build time ────────────────────────
-
-$toolClasses = [];
-foreach (glob($baseDir . '/tools/*.php') as $f) {
-	$toolClasses[] = basename($f, '.php');
-}
-
-// ── Read app.conf.php to extract version for stamp ─────────────
+// ── Read app.conf.php to extract version for output ─────────────
 
 $appConf = file_get_contents($baseDir . '/system/app.conf.php');
 preg_match("/define\('APPLICATION_VERSION',\s*'([^']+)'\)/", $appConf, $vMatch);
 $version = $vMatch[1] ?? 'unknown';
 
-// ── Read instructions ──────────────────────────────────────────
-
-$instructionsFile = $baseDir . '/config/instructions.txt';
-$instructions = file_exists($instructionsFile)
-	? trim(file_get_contents($instructionsFile))
-	: '';
-
 // ── Generate Stub ──────────────────────────────────────────────
-// The stub uses the standard Enchilada Framework bootstrap which
-// resolves paths via __DIR__ and APPLICATION_ROOT — both of which
-// naturally handle phar:// URIs. The stub only contains app-specific
-// logic (config discovery, tool registration, server startup).
-
-$toolListPhp    = "['" . implode("','", $toolClasses) . "']";
-$instructionsPhp = var_export($instructions, true);
+// The stub just requires the real entry point. All bootstrap and
+// app logic lives in bin/mail-mcp, which works natively inside
+// the PHAR thanks to __DIR__-based path resolution throughout.
 
 $stub = <<<STUB
 #!/usr/bin/env php
 <?php
-/**
- * Mail MCP Server — PHAR Stub (auto-generated)
- * Version: {$version} | Built: %BUILD_DATE%
- */
-
 Phar::mapPhar('{$pharName}');
-\$pharRoot = 'phar://{$pharName}/';
-
-// ── Bootstrap (standard Enchilada Framework) ──
-require_once \$pharRoot . 'system/bootstrap.inc.php';
-
-// ── Configuration ──
-
-use EnchiladaMCP\McpServer;
-use EnchiladaMCP\StdioTransport;
-use Mail\InstanceManager;
-
-\$configPath = getenv('{$envVar}') ?: null;
-foreach (\$argv ?? [] as \$arg) {
-    if (str_starts_with(\$arg, '--config=')) {
-        \$configPath = substr(\$arg, 9);
-    }
-}
-if (\$configPath === null) {
-    \$candidates = [
-        getenv('HOME') . '/.config/{$slug}/instances.json',
-        '/usr/local/etc/{$slug}/instances.json',
-    ];
-    foreach (\$candidates as \$c) {
-        if (file_exists(\$c)) { \$configPath = \$c; break; }
-    }
-}
-if (\$configPath === null || !file_exists(\$configPath)) {
-    fwrite(STDERR, "[{$slug}] ERROR: No config found.\\n");
-    fwrite(STDERR, "  Set {$envVar} env var or use --config=/path/to/instances.json\\n");
-    fwrite(STDERR, "  Or place instances.json in ~/.config/{$slug}/\\n");
-    exit(1);
-}
-
-// ── Run ──
-
-function debug(string \$m): void { fwrite(STDERR, "[{$slug}] " . \$m . "\\n"); }
-
-try {
-    \$manager = InstanceManager::fromFile(\$configPath);
-} catch (\Exception \$e) {
-    fwrite(STDERR, "[{$slug}] ERROR: " . \$e->getMessage() . "\\n");
-    exit(1);
-}
-
-debug("Loaded " . \$manager->count() . " instance(s) from {\$configPath} (default: " . \$manager->getDefault() . ")");
-
-\$server = new McpServer(APPLICATION_SLUG, APPLICATION_VERSION);
-\$server->setInstructions({$instructionsPhp});
-
-\$toolClasses = {$toolListPhp};
-foreach (\$toolClasses as \$cls) {
-    require_once \$pharRoot . 'tools/' . \$cls . '.php';
-    \$server->register(new \$cls(\$manager));
-    debug("Registered tools: {\$cls}");
-}
-
-debug("MCP server started (stdio transport, PHAR)");
-\$transport = new StdioTransport(\$server);
-\$transport->setLogger('debug');
-\$transport->run();
-debug("MCP server stopped");
-
+require 'phar://{$pharName}/{$entryPoint}';
 __HALT_COMPILER();
 STUB;
-
-// Stamp build date
-$stub = str_replace('%BUILD_DATE%', date('Y-m-d H:i:s T'), $stub);
 
 $phar->setStub($stub);
 $phar->stopBuffering();
@@ -195,5 +110,4 @@ chmod($pharPath, 0755);
 $size = round(filesize($pharPath) / 1024, 1);
 echo "Built: {$pharPath} ({$size} KB, {$fileCount} files)\n";
 echo "Version: {$version}\n";
-echo "Tools: " . implode(', ', $toolClasses) . "\n";
 echo "Test:  php {$pharName} --config=/path/to/instances.json\n";
