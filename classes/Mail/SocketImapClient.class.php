@@ -46,7 +46,7 @@ class SocketImapClient implements ImapClientInterface
 		$this->verifySsl = $verifySsl;
 	}
 
-	public function connect(string $host, int $port, bool $tls = true): void
+	public function connect(string $host, int $port, bool $tls = true, bool $starttls = true): void
 	{
 		if ($this->socket !== null) {
 			$this->disconnect();
@@ -88,8 +88,8 @@ class SocketImapClient implements ImapClientInterface
 			throw new \RuntimeException("IMAP server rejected connection: {$greeting}");
 		}
 
-		// If not using implicit TLS, try STARTTLS
-		if (!$tls) {
+		// If not using implicit TLS, upgrade via STARTTLS (unless plaintext mode)
+		if (!$tls && $starttls) {
 			$this->starttls();
 		}
 	}

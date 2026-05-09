@@ -19,12 +19,13 @@ interface SmtpClientInterface
 	/**
 	 * Connect to the SMTP server.
 	 *
-	 * @param string $host Hostname or IP
-	 * @param int    $port Port number (465 for implicit TLS, 587 for STARTTLS)
-	 * @param bool   $tls  Use implicit TLS (true) or STARTTLS (false)
+	 * @param string $host     Hostname or IP
+	 * @param int    $port     Port number (465 for implicit TLS, 587 for STARTTLS)
+	 * @param bool   $tls      Use implicit TLS (true) or STARTTLS (false)
+	 * @param bool   $starttls Attempt STARTTLS when not using implicit TLS (false = plaintext only)
 	 * @throws \RuntimeException On connection failure
 	 */
-	public function connect(string $host, int $port, bool $tls = true): void;
+	public function connect(string $host, int $port, bool $tls = true, bool $starttls = true): void;
 
 	/**
 	 * Authenticate with username and password (AUTH LOGIN or AUTH PLAIN).
