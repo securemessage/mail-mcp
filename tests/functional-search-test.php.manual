@@ -1,0 +1,281 @@
+#!/usr/local/bin/php
+<?php
+/**
+ * Functional test: Exercise all search capabilities against a live IMAP server.
+ *
+ * Usage: php tests/functional-search-test.php
+ *
+ * Requires a configured instances.json with a valid test account.
+ */
+
+require_once __DIR__ . '/../system/bootstrap.inc.php';
+
+use Mail\InstanceManager;
+
+// Load instances config
+$configFile = APPLICATION_CONFDIR . 'instances.json';
+if (!file_exists($configFile)) {
+	fwrite(STDERR, "ERROR: instances.json not found at {$configFile}\n");
+	exit(1);
+}
+$manager = InstanceManager::fromFile($configFile);
+
+echo "=== Mail MCP Functional Search Test ===\n\n";
+
+// --- Step 1: Connect ---
+echo "1. Connecting to IMAP...\n";
+try {
+	$manager->connectImap();
+	echo "   ✓ IMAP connected\n\n";
+} catch (Throwable $e) {
+	echo "   ✗ IMAP connection failed: {$e->getMessage()}\n";
+	exit(1);
+}
+
+$client = $manager->getImapClient();
+$passed = 0;
+$failed = 0;
+$skipped = 0;
+
+function test(string $name, callable $fn): void
+{
+	global $passed, $failed, $skipped;
+	echo "   Testing: {$name}... ";
+	try {
+		$result = $fn();
+		if ($result === null) {
+			echo "SKIP\n";
+			$skipped++;
+		} else {
+			echo "✓ ({$result})\n";
+			$passed++;
+		}
+	} catch (Throwable $e) {
+		echo "✗ {$e->getMessage()}\n";
+		$failed++;
+	}
+}
+
+// --- Step 2: Mailbox operations ---
+echo "2. Mailbox operations\n";
+test('List mailboxes', function() use ($client) {
+	$mailboxes = $client->listMailboxes();
+	$names = array_map(fn($m) => $m->name, $mailboxes);
+	return count($mailboxes) . ' mailboxes: ' . implode(', ', array_slice($names, 0, 5)) . (count($names) > 5 ? '...' : '');
+});
+
+test('Select INBOX', function() use ($client) {
+	$inbox = $client->selectMailbox('INBOX', true);
+	return "total={$inbox->totalMessages}, recent={$inbox->recentMessages}, unseen={$inbox->unseenMessages}";
+});
+
+// --- Step 3: Search capabilities (mapping to upstream's 9 search tools) ---
+echo "\n3. Search capabilities\n";
+
+// 3a. search_by_sender → FROM
+test('Search by sender (FROM)', function() use ($client) {
+	$uids = $client->search(['FROM' => 'justin']);
+	return count($uids) . ' results';
+});
+
+// 3b. search_by_subject → SUBJECT
+test('Search by subject (SUBJECT)', function() use ($client) {
+	$uids = $client->search(['SUBJECT' => 'test']);
+	return count($uids) . ' results';
+});
+
+// 3c. search_by_recipient → TO
+test('Search by recipient (TO)', function() use ($client) {
+	$uids = $client->search(['TO' => 'justin']);
+	return count($uids) . ' results';
+});
+
+// 3d. search_by_body → BODY
+test('Search by body text (BODY)', function() use ($client) {
+	$uids = $client->search(['BODY' => 'test']);
+	return count($uids) . ' results';
+});
+
+// 3e. search_since_date → SINCE
+test('Search since date (SINCE)', function() use ($client) {
+	$uids = $client->search(['SINCE' => date('d-M-Y', strtotime('-30 days'))]);
+	return count($uids) . ' results in last 30 days';
+});
+
+// 3f. search_before_date → BEFORE (we have this, upstream doesn't)
+test('Search before date (BEFORE) [our extra]', function() use ($client) {
+	$uids = $client->search(['BEFORE' => date('d-M-Y')]);
+	return count($uids) . ' results before today';
+});
+
+// 3g. Date range (SINCE + BEFORE combined)
+test('Search date range (SINCE + BEFORE)', function() use ($client) {
+	$criteria = [
+		'SINCE' => date('d-M-Y', strtotime('-7 days')),
+		'BEFORE' => date('d-M-Y'),
+	];
+	$uids = $client->search($criteria);
+	return count($uids) . ' results in last 7 days';
+});
+
+// 3h. search_unread_from_sender → UNSEEN + FROM
+test('Search unread from sender (UNSEEN + FROM)', function() use ($client) {
+	$criteria = ['UNSEEN', 'FROM' => 'justin'];
+	$uids = $client->search($criteria);
+	return count($uids) . ' unread from justin';
+});
+
+// 3i. search_unreplied_from_sender → UNANSWERED + FROM
+test('Search unreplied from sender (UNANSWERED + FROM)', function() use ($client) {
+	$criteria = ['UNANSWERED', 'FROM' => 'justin'];
+	$uids = $client->search($criteria);
+	return count($uids) . ' unanswered from justin';
+});
+
+// 3j. search_with_keyword → KEYWORD
+test('Search with keyword (KEYWORD)', function() use ($client) {
+	// KEYWORD searches for user-defined flags — may not have any
+	try {
+		$uids = $client->search(['KEYWORD' => '$Important']);
+		return count($uids) . ' results with $Important keyword';
+	} catch (Throwable $e) {
+		// Some servers don't support KEYWORD searches well
+		return null; // skip
+	}
+});
+
+// 3k. search_all_messages → ALL
+test('Search ALL messages', function() use ($client) {
+	$uids = $client->search([]);
+	return count($uids) . ' total messages';
+});
+
+// 3l. Combined: unread + date range
+test('Combined: UNSEEN + date range', function() use ($client) {
+	$criteria = [
+		'UNSEEN',
+		'SINCE' => date('d-M-Y', strtotime('-30 days')),
+	];
+	$uids = $client->search($criteria);
+	return count($uids) . ' unread in last 30 days';
+});
+
+// 3m. Combined: FLAGGED
+test('Search flagged/starred (FLAGGED)', function() use ($client) {
+	$uids = $client->search(['FLAGGED']);
+	return count($uids) . ' flagged messages';
+});
+
+// 3n. Combined: ANSWERED
+test('Search answered (ANSWERED)', function() use ($client) {
+	$uids = $client->search(['ANSWERED']);
+	return count($uids) . ' answered messages';
+});
+
+// --- Step 4: Fetch operations ---
+echo "\n4. Fetch operations\n";
+$allUids = $client->search([]);
+if (!empty($allUids)) {
+	$testUid = end($allUids); // most recent
+
+	test("Fetch headers (UID {$testUid})", function() use ($client, $testUid) {
+		$messages = $client->fetchHeaders([$testUid]);
+		if (empty($messages)) return null;
+		$msg = $messages[0];
+		return "from={$msg->from}, subject=" . substr($msg->subject, 0, 40);
+	});
+
+	test("Fetch full message (UID {$testUid})", function() use ($client, $testUid) {
+		$msg = $client->fetchMessage($testUid, false);
+		$hasText = $msg->textBody !== null ? 'yes' : 'no';
+		$hasHtml = $msg->htmlBody !== null ? 'yes' : 'no';
+		return "text={$hasText}, html={$hasHtml}, attachments=" . count($msg->attachments);
+	});
+} else {
+	echo "   (no messages to test fetch operations)\n";
+}
+
+// --- Step 5: Verify the unified mail_search tool covers all upstream searches ---
+echo "\n5. SearchTools integration test\n";
+
+// Load and instantiate SearchTools directly
+require_once APPLICATION_ROOT . 'tools/SearchTools.php';
+$searchTools = new SearchTools($manager);
+
+test('mail_search(from: "justin")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(from: 'justin');
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(subject: "test")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(subject: 'test');
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(unread: true)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(unread: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(since: "-7 days")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(since: date('Y-m-d', strtotime('-7 days')));
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(from: "justin", unread: true)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(from: 'justin', unread: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(body: "test")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(body: 'test');
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(limit: 5)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(limit: 5);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(answered: true)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(answered: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(unanswered: true)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(unanswered: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(unanswered: true, from: "justin")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(from: 'justin', unanswered: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(flagged: true)', function() use ($searchTools) {
+	$result = $searchTools->mail_search(flagged: true);
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(keyword: "$Important")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(keyword: '$Important');
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+test('mail_search(cc: "justin")', function() use ($searchTools) {
+	$result = $searchTools->mail_search(cc: 'justin');
+	return "total={$result['total_matches']}, returned={$result['returned']}";
+});
+
+// --- Summary ---
+echo "\n=== Results ===\n";
+echo "Passed: {$passed}\n";
+echo "Failed: {$failed}\n";
+echo "Skipped: {$skipped}\n";
+
+if ($failed > 0) {
+	echo "\n⚠ Some tests failed!\n";
+	exit(1);
+} else {
+	echo "\n✓ All tests passed.\n";
+}

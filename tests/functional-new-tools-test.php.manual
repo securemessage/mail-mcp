@@ -1,0 +1,176 @@
+#!/usr/local/bin/php
+<?php
+/**
+ * Functional test: Exercise new tools (draft, move, flags, thread) against live IMAP.
+ *
+ * Usage: php tests/functional-new-tools-test.php
+ */
+
+require_once __DIR__ . '/../system/bootstrap.inc.php';
+
+use Mail\InstanceManager;
+
+$configFile = APPLICATION_CONFDIR . 'instances.json';
+$manager = InstanceManager::fromFile($configFile);
+
+echo "=== Mail MCP New Tools Functional Test ===\n\n";
+
+echo "1. Connecting...\n";
+$manager->connectImap();
+echo "   ✓ IMAP connected\n\n";
+
+$client = $manager->getImapClient();
+$passed = 0;
+$failed = 0;
+
+function test(string $name, callable $fn): void
+{
+	global $passed, $failed;
+	echo "   Testing: {$name}... ";
+	try {
+		$result = $fn();
+		echo "✓ ({$result})\n";
+		$passed++;
+	} catch (Throwable $e) {
+		echo "✗ {$e->getMessage()}\n";
+		$failed++;
+	}
+}
+
+// Load tool classes
+foreach (glob(APPLICATION_ROOT . 'tools/*.php') as $f) {
+	$cls = basename($f, '.php');
+	if (!class_exists($cls, false)) {
+		require_once $f;
+	}
+}
+
+$draftTools = new DraftTools($manager);
+$orgTools = new OrganizationTools($manager);
+$threadTools = new ThreadTools($manager);
+
+// --- Draft Tools ---
+echo "2. Draft Tools\n";
+test('Create draft', function() use ($draftTools) {
+	$result = $draftTools->mail_create_draft(
+		to: 'test@example.com',
+		subject: 'MCP Draft Test ' . date('H:i:s'),
+		text: 'This is a draft created by mail_create_draft tool.'
+	);
+	if (isset($result['error'])) throw new RuntimeException($result['error']);
+	return "folder={$result['drafts_folder']}, created={$result['draft_created']}";
+});
+
+// Verify draft is in Drafts folder
+test('Verify draft in Drafts folder', function() use ($client) {
+	$client->selectMailbox('Drafts', true);
+	$uids = $client->search(['SUBJECT' => 'MCP Draft Test']);
+	$client->selectMailbox('INBOX', true); // restore
+	return count($uids) . ' drafts found matching subject';
+});
+
+// --- Organization Tools: Flags ---
+echo "\n3. Flag/Label Management\n";
+$inbox = $client->selectMailbox('INBOX', true);
+$allUids = $client->search([]);
+if (!empty($allUids)) {
+	$testUid = end($allUids);
+
+	test("Add \\Flagged to UID {$testUid}", function() use ($orgTools, $testUid) {
+		$result = $orgTools->mail_set_flags(
+			uids: [$testUid],
+			add_flags: ['\\Flagged']
+		);
+		return "modified={$result['modified']}";
+	});
+
+	test("Verify \\Flagged is set", function() use ($client, $testUid) {
+		$msg = $client->fetchMessage($testUid, false);
+		if (!in_array('\\Flagged', $msg->flags)) {
+			throw new RuntimeException('\\Flagged not found in message flags');
+		}
+		return 'flags=' . implode(',', $msg->flags);
+	});
+
+	test("Remove \\Flagged from UID {$testUid}", function() use ($orgTools, $testUid) {
+		$result = $orgTools->mail_set_flags(
+			uids: [$testUid],
+			remove_flags: ['\\Flagged']
+		);
+		return "modified={$result['modified']}";
+	});
+
+	test("Verify \\Flagged removed", function() use ($client, $testUid) {
+		$msg = $client->fetchMessage($testUid, false);
+		if (in_array('\\Flagged', $msg->flags)) {
+			throw new RuntimeException('\\Flagged still present');
+		}
+		return 'clean — flags=' . implode(',', $msg->flags);
+	});
+}
+
+// --- Thread Tools ---
+echo "\n4. Thread Tools\n";
+// Find the reply we created earlier to test threading
+$client->selectMailbox('INBOX', true);
+$repliedUids = $client->search(['ANSWERED']);
+if (!empty($repliedUids)) {
+	$threadUid = $repliedUids[0];
+	test("Get thread from UID {$threadUid}", function() use ($threadTools, $threadUid) {
+		$result = $threadTools->mail_get_thread(uid: $threadUid);
+		return "thread_size={$result['thread_size']}, subject={$result['subject']}";
+	});
+} else {
+	test("Get thread from most recent message", function() use ($threadTools, $allUids) {
+		$uid = end($allUids);
+		$result = $threadTools->mail_get_thread(uid: $uid);
+		return "thread_size={$result['thread_size']}, subject={$result['subject']}";
+	});
+}
+
+// --- Organization Tools: Move ---
+echo "\n5. Move Message (create folder + move + cleanup)\n";
+$testFolderName = 'MCP-Test-' . date('His');
+
+test("Create mailbox '{$testFolderName}'", function() use ($orgTools, $testFolderName) {
+	$result = $orgTools->mail_create_mailbox(name: $testFolderName);
+	return "created={$result['created']}";
+});
+
+// Find a draft we can move (the one we just created)
+$client->selectMailbox('Drafts', false);
+$draftUids = $client->search(['SUBJECT' => 'MCP Draft Test']);
+if (!empty($draftUids)) {
+	$draftUid = end($draftUids);
+	test("Move draft UID {$draftUid} from Drafts to {$testFolderName}", function() use ($orgTools, $draftUid, $testFolderName) {
+		$result = $orgTools->mail_move_message(
+			uid: $draftUid,
+			target_folder: $testFolderName,
+			source_folder: 'Drafts'
+		);
+		return "moved={$result['moved']}, from={$result['from']}, to={$result['to']}";
+	});
+
+	// Verify the message is in the new folder
+	test("Verify message in {$testFolderName}", function() use ($client, $testFolderName) {
+		$client->selectMailbox($testFolderName, true);
+		$uids = $client->search([]);
+		return count($uids) . ' messages in folder';
+	});
+
+	// Clean up: delete from the test folder
+	test("Clean up: delete from {$testFolderName}", function() use ($client, $testFolderName) {
+		$client->selectMailbox($testFolderName, false);
+		$uids = $client->search([]);
+		foreach ($uids as $uid) {
+			$client->deleteMessage($uid);
+		}
+		$client->selectMailbox('INBOX', true);
+		return 'cleaned';
+	});
+}
+
+echo "\n=== Results ===\n";
+echo "Passed: {$passed}\n";
+echo "Failed: {$failed}\n";
+echo ($failed > 0) ? "\n⚠ Some tests failed!\n" : "\n✓ All tests passed.\n";

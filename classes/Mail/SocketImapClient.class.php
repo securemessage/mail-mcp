@@ -326,6 +326,63 @@ class SocketImapClient implements ImapClientInterface
 		}
 	}
 
+	public function copyMessage(int $uid, string $targetMailbox): void
+	{
+		$this->requireAuth();
+
+		$response = $this->command("UID COPY {$uid} " . $this->quoteString($targetMailbox));
+
+		if ($response['status'] !== 'OK') {
+			throw new \RuntimeException("COPY failed: {$response['text']}");
+		}
+	}
+
+	public function createMailbox(string $name): void
+	{
+		$this->requireAuth();
+
+		$response = $this->command("CREATE " . $this->quoteString($name));
+
+		if ($response['status'] !== 'OK') {
+			throw new \RuntimeException("CREATE failed: {$response['text']}");
+		}
+	}
+
+	public function appendMessage(string $mailbox, string $rawMessage, array $flags = []): void
+	{
+		$this->requireAuth();
+
+		$flagStr = !empty($flags) ? ' (' . implode(' ', $flags) . ')' : '';
+		$size = strlen($rawMessage);
+
+		$tag = $this->nextTag();
+		$this->writeLine("{$tag} APPEND " . $this->quoteString($mailbox) . "{$flagStr} {" . $size . "}");
+
+		// Server should respond with a continuation request (+)
+		$line = $this->readLine();
+		if ($line === null || !str_starts_with($line, '+')) {
+			throw new \RuntimeException("APPEND failed: server did not send continuation request: {$line}");
+		}
+
+		// Send the literal message data
+		$this->requireConnection();
+		@fwrite($this->socket, $rawMessage . "\r\n");
+
+		// Read tagged response
+		while (true) {
+			$line = $this->readLine();
+			if ($line === null) {
+				throw new \RuntimeException('IMAP connection lost during APPEND');
+			}
+			if (str_starts_with($line, "{$tag} OK")) {
+				return;
+			}
+			if (str_starts_with($line, "{$tag} NO") || str_starts_with($line, "{$tag} BAD")) {
+				throw new \RuntimeException("APPEND failed: {$line}");
+			}
+		}
+	}
+
 	public function disconnect(): void
 	{
 		if ($this->socket !== null) {

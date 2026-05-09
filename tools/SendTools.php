@@ -26,7 +26,7 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_send',
-		description: 'Send a new email via SMTP. Requires an active SMTP connection. Provide at least text or html body.',
+		description: 'Send a new email via SMTP. Requires an active SMTP connection. Provide at least text or html body. Supports file attachments via absolute paths.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -36,6 +36,7 @@ class SendTools
 				'html' => ['type' => 'string', 'description' => 'HTML email body (optional, creates multipart if both text and html provided)'],
 				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional)'],
 				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 			],
 			'required' => ['to', 'subject'],
@@ -48,6 +49,7 @@ class SendTools
 		string $html = '',
 		string $cc = '',
 		string $bcc = '',
+		array $attachments = [],
 		string $instance = ''
 	): array {
 		$name = $instance ?: null;
@@ -78,18 +80,46 @@ class SendTools
 			$builder->setTextBody('');
 		}
 
+		// Attach files from disk
+		$attachedFiles = [];
+		foreach ($attachments as $filePath) {
+			if (!file_exists($filePath)) {
+				return ['error' => "Attachment file not found: {$filePath}"];
+			}
+			if (!is_readable($filePath)) {
+				return ['error' => "Attachment file not readable: {$filePath}"];
+			}
+			$content = file_get_contents($filePath);
+			if ($content === false) {
+				return ['error' => "Failed to read attachment: {$filePath}"];
+			}
+			$filename = basename($filePath);
+			$mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+			$builder->addAttachment($filename, $content, $mimeType);
+			$attachedFiles[] = $filename;
+		}
+
 		$rawMessage = $builder->build();
 		$recipients = $builder->getAllRecipients();
 
 		$smtp->send($config['username'], $recipients, $rawMessage);
 
-		return [
+		$result = [
 			'instance' => $instance ?: $this->manager->getDefault(),
 			'sent' => true,
 			'to' => $to,
 			'subject' => $subject,
 			'recipients' => count($recipients),
 		];
+
+		if (!empty($attachedFiles)) {
+			$result['attachments'] = $attachedFiles;
+		}
+
+		// Save to Sent folder (best-effort)
+		$result['saved_to_sent'] = $this->saveToSentFolder($name, $rawMessage);
+
+		return $result;
 	}
 
 	/**
@@ -97,7 +127,7 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_reply',
-		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present.',
+		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default includes the quoted original message body below the reply text.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -105,6 +135,7 @@ class SendTools
 				'text' => ['type' => 'string', 'description' => 'Reply text body'],
 				'html' => ['type' => 'string', 'description' => 'Reply HTML body (optional)'],
 				'reply_all' => ['type' => 'boolean', 'description' => 'Reply to all recipients (default: false)'],
+				'include_original' => ['type' => 'boolean', 'description' => 'Include quoted original message in reply (default: true)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 			],
 			'required' => ['uid', 'text'],
@@ -115,6 +146,7 @@ class SendTools
 		string $text,
 		string $html = '',
 		bool $reply_all = false,
+		bool $include_original = true,
 		string $instance = ''
 	): array {
 		$name = $instance ?: null;
@@ -122,7 +154,7 @@ class SendTools
 		$imap = $this->manager->getImapClient($name);
 		$smtp = $this->manager->getSmtpClient($name);
 
-		// Fetch original message headers
+		// Fetch original message (full body needed for quoting)
 		$original = $imap->fetchMessage($uid, false);
 
 		$builder = new MessageBuilder();
@@ -162,9 +194,35 @@ class SendTools
 			}
 		}
 
-		$builder->setTextBody($text);
-		if (!empty($html)) {
-			$builder->setHtmlBody($html);
+		// Build reply body with quoted original
+		$replyText = $text;
+		$replyHtml = $html;
+
+		if ($include_original) {
+			$attribution = $this->buildAttribution($original->date, $original->from);
+
+			// Text body with quoted original
+			if ($original->textBody !== null) {
+				$quotedText = $this->quoteTextBody($original->textBody);
+				$replyText = $text . "\n\n" . $attribution . "\n" . $quotedText;
+			}
+
+			// HTML body with quoted original
+			if (!empty($html) || $original->htmlBody !== null) {
+				$origHtmlContent = $original->htmlBody ?? nl2br(htmlspecialchars($original->textBody ?? '', ENT_QUOTES, 'UTF-8'));
+				$htmlAttribution = htmlspecialchars($attribution, ENT_QUOTES, 'UTF-8');
+				$replyHtmlContent = !empty($html) ? $html : nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
+				$replyHtml = $replyHtmlContent
+					. '<br><br><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex">'
+					. '<p>' . $htmlAttribution . '</p>'
+					. $origHtmlContent
+					. '</blockquote>';
+			}
+		}
+
+		$builder->setTextBody($replyText);
+		if (!empty($replyHtml)) {
+			$builder->setHtmlBody($replyHtml);
 		}
 
 		$rawMessage = $builder->build();
@@ -172,14 +230,107 @@ class SendTools
 
 		$smtp->send($config['username'], $recipients, $rawMessage);
 
-		return [
+		$result = [
 			'instance' => $instance ?: $this->manager->getDefault(),
 			'sent' => true,
 			'reply_to_uid' => $uid,
 			'subject' => $subject,
 			'recipients' => count($recipients),
 			'reply_all' => $reply_all,
+			'include_original' => $include_original,
 		];
+
+		// Save to Sent folder (best-effort)
+		$result['saved_to_sent'] = $this->saveToSentFolder($name, $rawMessage);
+
+		return $result;
+	}
+
+	/** Common sent folder names to try, in priority order. */
+	private const SENT_FOLDER_NAMES = ['Sent', 'Sent Items', 'Sent Messages', 'INBOX.Sent'];
+
+	/**
+	 * Save a sent message to the Sent folder (best-effort).
+	 *
+	 * @param  string|null $instance    Instance name
+	 * @param  string      $rawMessage  Raw RFC 2822 message
+	 * @return bool                     True if saved successfully
+	 */
+	private function saveToSentFolder(?string $instance, string $rawMessage): bool
+	{
+		try {
+			$imap = $this->manager->getImapClient($instance);
+			if (!$imap->isConnected()) {
+				return false;
+			}
+
+			$sentFolder = $this->findSentMailbox($imap);
+			if ($sentFolder === null) {
+				return false;
+			}
+
+			$imap->appendMessage($sentFolder, $rawMessage, ['\\Seen']);
+			return true;
+		} catch (\Throwable $e) {
+			// Non-fatal — email was already sent via SMTP
+			return false;
+		}
+	}
+
+	/**
+	 * Find the Sent mailbox by checking \Sent attribute or common names.
+	 */
+	private function findSentMailbox(\Mail\ImapClientInterface $imap): ?string
+	{
+		// Check all mailboxes for \Sent attribute (RFC 6154)
+		$mailboxes = $imap->listMailboxes();
+		foreach ($mailboxes as $mb) {
+			if (in_array('\\Sent', $mb->flags)) {
+				return $mb->name;
+			}
+		}
+
+		// Fall back to common names
+		$names = array_map(fn($mb) => $mb->name, $mailboxes);
+		foreach (self::SENT_FOLDER_NAMES as $candidate) {
+			if (in_array($candidate, $names)) {
+				return $candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Build attribution line for quoted replies.
+	 */
+	private function buildAttribution(string $date, string $from): string
+	{
+		$formattedDate = $date;
+		$timestamp = strtotime($date);
+		if ($timestamp !== false) {
+			$formattedDate = date('D, j M Y', $timestamp);
+		}
+
+		// Extract display name or email from "Name <email>" format
+		$sender = $from;
+		if (preg_match('/^"?([^"<]+)"?\s*</', $from, $m)) {
+			$sender = trim($m[1]);
+		}
+
+		return "On {$formattedDate}, {$sender} wrote:";
+	}
+
+	/**
+	 * Quote a plain text body for reply (prefix each line with >).
+	 */
+	private function quoteTextBody(string $body): string
+	{
+		$lines = explode("\n", str_replace("\r\n", "\n", $body));
+		$quoted = array_map(function ($line) {
+			return '> ' . $line;
+		}, $lines);
+		return implode("\n", $quoted);
 	}
 
 	/**

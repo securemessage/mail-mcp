@@ -123,6 +123,35 @@ interface ImapClientInterface
 	public function deleteMessage(int $uid): void;
 
 	/**
+	 * Copy a message to another mailbox (IMAP UID COPY command).
+	 *
+	 * @param int    $uid            Message UID
+	 * @param string $targetMailbox  Destination mailbox name
+	 * @throws \RuntimeException On failure
+	 */
+	public function copyMessage(int $uid, string $targetMailbox): void;
+
+	/**
+	 * Create a new mailbox (IMAP CREATE command).
+	 *
+	 * @param string $name Mailbox name to create
+	 * @throws \RuntimeException On failure
+	 */
+	public function createMailbox(string $name): void;
+
+	/**
+	 * Append a raw message to a mailbox (IMAP APPEND command).
+	 *
+	 * Used to save sent messages to the Sent folder.
+	 *
+	 * @param string   $mailbox    Target mailbox name (e.g., "Sent")
+	 * @param string   $rawMessage Complete RFC 2822 message
+	 * @param string[] $flags      Flags to set (e.g., ['\Seen'])
+	 * @throws \RuntimeException On failure
+	 */
+	public function appendMessage(string $mailbox, string $rawMessage, array $flags = []): void;
+
+	/**
 	 * Disconnect from the server.
 	 */
 	public function disconnect(): void;

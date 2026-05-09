@@ -64,6 +64,11 @@ class ToolRegistrationTest extends TestCase
 			'mail_save_attachment',
 			'mail_list_instances',
 			'mail_switch_instance',
+			'mail_create_draft',
+			'mail_move_message',
+			'mail_set_flags',
+			'mail_create_mailbox',
+			'mail_get_thread',
 		];
 
 		foreach ($expectedTools as $expected) {
