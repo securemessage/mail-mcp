@@ -11,10 +11,10 @@
  * All rights reserved.
  */
 
-@include_once("system/multisite.inc.php"); //Enables Multisite Capabilities
-require_once("system/app.conf.php"); //Application Constants
-@include_once("config/local.conf.php"); //User Made Application Options
-require_once('system/autoload.inc.php'); // Libraries and Classes autoloader
+@include_once(__DIR__ . '/multisite.inc.php'); //Enables Multisite Capabilities
+require_once(__DIR__ . '/app.conf.php'); //Application Constants
+@include_once(dirname(__DIR__) . '/config/local.conf.php'); //User Made Application Options
+require_once(__DIR__ . '/autoload.inc.php'); // Libraries and Classes autoloader
 
 // Debug mode
 if (defined('APPLICATION_DEBUG') && APPLICATION_DEBUG) {
@@ -33,12 +33,14 @@ date_default_timezone_set(defined('APPLICATION_TIMEZONE') ? APPLICATION_TIMEZONE
  * for other components, so it is loaded first.
  */
 $component_loader = function() {
+	$incDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes';
 	$components = [];
-	$dir = dir('includes');
+	if (!is_dir($incDir)) return $components;
+	$dir = dir($incDir);
 	if (!$dir) return $components;
 	while (false !== ($entry = $dir->read())) {
 		if ($entry === 'settings.inc.php' || $entry === 'bootstrap.inc.php') continue;
-		$file = 'includes' . DIRECTORY_SEPARATOR . $entry;
+		$file = $incDir . DIRECTORY_SEPARATOR . $entry;
 		if (is_file($file) && substr($entry, -strlen('.inc.php')) === '.inc.php') {
 			$components[] = $file;
 		}
@@ -48,8 +50,8 @@ $component_loader = function() {
 };
 
 // Load the Settings Component
-if (is_file('includes/settings.inc.php')) {
-	include 'includes/settings.inc.php';
+if (is_file(dirname(__DIR__) . '/includes/settings.inc.php')) {
+	include dirname(__DIR__) . '/includes/settings.inc.php';
 }
 
 // Load Components

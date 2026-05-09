@@ -101,10 +101,10 @@ $instructions = file_exists($instructionsFile)
 	: '';
 
 // ── Generate Stub ──────────────────────────────────────────────
-// The stub replaces the normal Enchilada bootstrap because chdir()
-// does not work with phar:// URIs. It sets up constants with phar://
-// paths, loads the autoloader, requires tool files, and runs the
-// MCP server — mirroring the bin/ entry point logic exactly.
+// The stub uses the standard Enchilada Framework bootstrap which
+// resolves paths via __DIR__ and APPLICATION_ROOT — both of which
+// naturally handle phar:// URIs. The stub only contains app-specific
+// logic (config discovery, tool registration, server startup).
 
 $toolListPhp    = "['" . implode("','", $toolClasses) . "']";
 $instructionsPhp = var_export($instructions, true);
@@ -121,25 +121,7 @@ Phar::mapPhar('{$pharName}');
 \$pharRoot = 'phar://{$pharName}/';
 
 // ── Bootstrap (standard Enchilada Framework) ──
-//
-// The framework autoloader uses APPLICATION_ROOT for absolute path
-// resolution, which naturally handles phar:// URIs since app.conf.php
-// defines APPLICATION_ROOT as dirname(__DIR__) — resolving to the phar root.
-
-require_once \$pharRoot . 'system/app.conf.php';
-@include_once \$pharRoot . 'config/local.conf.php';
-require_once \$pharRoot . 'system/autoload.inc.php';
-
-// Load include components
-foreach (glob(\$pharRoot . 'includes/*.inc.php') as \$incFile) {
-    require_once \$incFile;
-}
-
-if (defined('APPLICATION_DEBUG') && APPLICATION_DEBUG) {
-    error_reporting(E_ALL);
-    ini_set('display_errors', 1);
-}
-date_default_timezone_set(defined('APPLICATION_TIMEZONE') ? APPLICATION_TIMEZONE : 'UTC');
+require_once \$pharRoot . 'system/bootstrap.inc.php';
 
 // ── Configuration ──
 
