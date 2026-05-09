@@ -88,7 +88,7 @@ For providers that require OAuth (or where you prefer not to store passwords):
             "username": "user@gmail.com",
             "oauth_client_id": "xxxxx.apps.googleusercontent.com",
             "oauth_client_secret": "GOCSPX-xxxxx",
-            "oauth_authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "oauth_authorize_url": "https://accounts.google.com/o/oauth2/auth",
             "oauth_token_url": "https://oauth2.googleapis.com/token",
             "oauth_scopes": "https://mail.google.com/",
             "tls": true
@@ -96,6 +96,8 @@ For providers that require OAuth (or where you prefer not to store passwords):
     }
 }
 ```
+
+For detailed OAuth setup (Google Workspace, Microsoft 365, pre-approved clients, troubleshooting), see [docs/OAUTH.md](OAUTH.md).
 
 ### Local Proxy (DavMail, stunnel)
 
@@ -269,5 +271,5 @@ The server automatically saves sent messages to the Sent folder via IMAP APPEND.
 
 - Store `instances.json` with restricted permissions: `chmod 600 ~/.config/mail-mcp/instances.json`
 - Use app passwords instead of your main account password
-- OAuth tokens must currently be provided per session via `mail_connect`. Persistent token storage with auto-refresh (authorize once, use forever) is planned for a future release
+- OAuth tokens are stored at `~/.config/mail-mcp/tokens/` with `0600` permissions. Authorize once, tokens auto-refresh indefinitely
 - The MCP transport is stdio (local process) — credentials never leave your machine

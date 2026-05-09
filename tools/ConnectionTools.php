@@ -177,7 +177,7 @@ class ConnectionTools
 		$state = bin2hex(random_bytes(16));
 
 		// Start callback server on random port
-		$callbackServer = new OAuthCallbackServer('/callback', $state);
+		$callbackServer = new OAuthCallbackServer('', $state);
 		$callbackUrl = $callbackServer->getCallbackUrl();
 
 		// Update redirect URI on the OAuth client
@@ -213,8 +213,9 @@ class ConnectionTools
 								'mail-mcp'
 							);
 						}
-					} catch (\Exception $e) {
+					} catch (\Throwable $e) {
 						fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
+						@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
 					}
 					$callbackServer->close();
 					return false; // Remove from event loop

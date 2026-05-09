@@ -164,11 +164,14 @@ class EnchiladaOauth3LOClient {
 		$data = [
 			'grant_type' => 'authorization_code',
 			'client_id' => $this->client_id,
-			'client_secret' => $this->client_secret,
 			'code' => $code,
 			'redirect_uri' => $this->redirect_uri,
 			'code_verifier' => $codeVerifier,
 		];
+
+		if (!empty($this->client_secret)) {
+			$data['client_secret'] = $this->client_secret;
+		}
 
 		$response = $this->http->call($this->token_endpoint, http_build_query($data), 'POST',
 			['Content-Type: application/x-www-form-urlencoded'], null, 'json');
@@ -295,9 +298,12 @@ class EnchiladaOauth3LOClient {
 		$data = [
 			'grant_type' => 'refresh_token',
 			'client_id' => $this->client_id,
-			'client_secret' => $this->client_secret,
 			'refresh_token' => $this->refresh_token,
 		];
+
+		if (!empty($this->client_secret)) {
+			$data['client_secret'] = $this->client_secret;
+		}
 
 		$response = $this->http->call($this->token_endpoint, http_build_query($data), 'POST',
 			['Content-Type: application/x-www-form-urlencoded'], null, 'json');

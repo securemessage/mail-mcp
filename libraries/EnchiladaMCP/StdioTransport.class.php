@@ -154,7 +154,15 @@ class StdioTransport
 			// Check additional streams
 			foreach ($this->additionalStreams as $key => $entry) {
 				if (in_array($entry['stream'], $read, true)) {
-					($entry['callback'])($entry['stream']);
+					try {
+						$result = ($entry['callback'])($entry['stream']);
+					} catch (\Throwable $e) {
+						$this->log("Stream callback error: " . $e->getMessage());
+						$result = false;
+					}
+					if ($result === false) {
+						unset($this->additionalStreams[$key]);
+					}
 				}
 			}
 		}

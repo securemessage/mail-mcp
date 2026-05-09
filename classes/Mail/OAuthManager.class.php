@@ -138,7 +138,7 @@ class OAuthManager
 		$state = bin2hex(random_bytes(16));
 
 		// Start callback server on random port
-		$callbackServer = new OAuthCallbackServer('/callback', $state);
+		$callbackServer = new OAuthCallbackServer('', $state);
 		$callbackUrl = $callbackServer->getCallbackUrl();
 
 		// Update redirect URI on the OAuth client
@@ -209,7 +209,7 @@ class OAuthManager
 		$codeChallenge = EnchiladaOauth3LOClient::generateCodeChallenge($codeVerifier);
 		$state = bin2hex(random_bytes(16));
 
-		$callbackServer = new OAuthCallbackServer('/callback', $state);
+		$callbackServer = new OAuthCallbackServer('', $state);
 		$callbackUrl = $callbackServer->getCallbackUrl();
 		$client->setRedirectUri($callbackUrl);
 

@@ -148,6 +148,7 @@ For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworl
 ## Documentation
 
 - [docs/SETUP.md](docs/SETUP.md) — Full setup guide (auth methods, providers, IDE integration, troubleshooting)
+- [docs/OAUTH.md](docs/OAUTH.md) — OAuth setup for Gmail, Google Workspace, Microsoft 365
 - [docs/TOOLS.md](docs/TOOLS.md) — Complete tool reference with all parameters
 - [docs/AGENT_SKILL.md](docs/AGENT_SKILL.md) — Agent skill for AI-assisted installation
 

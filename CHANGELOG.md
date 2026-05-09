@@ -2,6 +2,27 @@
 
 All notable changes to the Mail MCP Server are documented here.
 
+## [0.4.0] - 2026-05-09
+
+### Added
+- OAuth browser auto-open for VS Code / Windsurf Remote SSH (via `$BROWSER` env, `code --open-url`, `windsurf --open-url`)
+- Comprehensive OAuth setup guide (`docs/OAUTH.md`) covering Gmail, Google Workspace, Microsoft 365, and Hotmail
+- PKCE support for public OAuth clients (no client_secret required)
+- Token persistence at `~/.config/mail-mcp/tokens/{instance}.json` with automatic refresh
+
+### Fixed
+- OAuth callback URL uses `localhost` instead of `127.0.0.1` (Microsoft requires exact match)
+- Removed `/callback` path from redirect URI (Microsoft strict URI matching for public clients)
+- `client_secret` now omitted from token exchange when empty (Microsoft public clients reject it)
+- StdioTransport event loop: properly removes streams when callback returns `false` (prevented crash)
+- StdioTransport event loop: wraps stream callbacks in try/catch for `\Throwable` (prevented crash)
+- OAuth callback error handler catches `\Throwable` (not just `\Exception`)
+
+### Changed
+- OAuth token exchange and refresh are now compatible with both confidential and public OAuth clients
+- Validated against: Gmail (personal), Google Workspace, Microsoft 365 (corporate)
+- Documented limitation: Personal Hotmail/Outlook.com accounts require App Passwords (Microsoft platform restriction)
+
 ## [0.3.1] - 2026-05-08
 
 ### Fixed

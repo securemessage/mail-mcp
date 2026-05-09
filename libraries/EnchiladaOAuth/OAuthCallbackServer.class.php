@@ -100,7 +100,7 @@ class OAuthCallbackServer
 	 */
 	public function getCallbackUrl(): string
 	{
-		return "http://127.0.0.1:{$this->port}{$this->path}";
+		return "http://localhost:{$this->port}{$this->path}";
 	}
 
 	/**
@@ -259,6 +259,13 @@ class OAuthCallbackServer
 	 */
 	public static function tryOpenUrl(string $url): bool
 	{
+		// VS Code / Windsurf Remote SSH sets $BROWSER to a helper that opens URLs on the local machine
+		$browser = getenv('BROWSER');
+		if (!empty($browser)) {
+			@exec($browser . ' ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
+			if ($ret === 0) return true;
+		}
+
 		if (PHP_OS_FAMILY === 'Darwin') {
 			@exec('open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
 			return ($ret === 0);
@@ -269,7 +276,13 @@ class OAuthCallbackServer
 			return ($ret === 0);
 		}
 
-		// Linux/BSD with display server
+		// Linux/BSD: try VS Code CLI first (works over Remote SSH), then xdg-open
+		$codeBin = getenv('VSCODE_IPC_HOOK_CLI') ? 'code' : (getenv('WINDSURF_IPC_HOOK_CLI') ? 'windsurf' : '');
+		if (!empty($codeBin)) {
+			@exec($codeBin . ' --open-url ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
+			if ($ret === 0) return true;
+		}
+
 		if (getenv('DISPLAY') || getenv('WAYLAND_DISPLAY')) {
 			@exec('xdg-open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
 			return ($ret === 0);
