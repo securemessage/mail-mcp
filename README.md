@@ -1,6 +1,6 @@
 # Mail MCP Server
 
-A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/docs/enchilada-framework).
+A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/enchilada).
 
 Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js. Zero external dependencies beyond PHP 8.4 with `openssl`, `curl`, and `iconv`.
 
@@ -150,6 +150,17 @@ For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworl
 - [docs/SETUP.md](docs/SETUP.md) — Full setup guide (auth methods, providers, IDE integration, troubleshooting)
 - [docs/TOOLS.md](docs/TOOLS.md) — Complete tool reference with all parameters
 - [docs/AGENT_SKILL.md](docs/AGENT_SKILL.md) — Agent skill for AI-assisted installation
+
+## Donations
+
+If you find this project useful, consider a small donation:
+
+| Currency | Address |
+|---|---|
+| **BTC** | `1B6eyXVRPxdEitW5vWrUnzzXUy6o38P9wN` |
+| **LTC** | `MCrnhTAHA3n6X8jUJQj9hed5CT585sJExQ` |
+| **PEPE (Ᵽ)** | `Pk3WZshXxi656RNNoVuZTCERVhhv4pyPJS` |
+| **DOGE** | `DQgDGexy5tJ4StbMdyGwgfyxhcAGTRrPVB` |
 
 ## License
 
