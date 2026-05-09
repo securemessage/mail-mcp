@@ -6,7 +6,7 @@
 
 define('APPLICATION_NAME', 'Mail MCP');
 define('APPLICATION_SLUG', 'mail-mcp');
-define('APPLICATION_VERSION', '0.3.0');
+define('APPLICATION_VERSION', '0.3.1');
 define('APPLICATION_WEBSITE', 'https://pacyworld.dev/pacyworld/mail-mcp');
 
 define('APPLICATION_ROOT', dirname(__DIR__) . DIRECTORY_SEPARATOR);

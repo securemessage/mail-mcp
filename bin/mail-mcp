@@ -21,6 +21,15 @@
 // Enchilada Framework bootstrap
 require_once dirname(__DIR__) . '/system/bootstrap.inc.php';
 
+// Verify required PHP extensions
+$requiredExtensions = ['openssl', 'curl', 'iconv'];
+$missing = array_filter($requiredExtensions, fn($ext) => !extension_loaded($ext));
+if (!empty($missing)) {
+	fwrite(STDERR, "[mail-mcp] ERROR: Missing required PHP extension(s): " . implode(', ', $missing) . "\n");
+	fwrite(STDERR, "  Install via: pkg install " . implode(' ', array_map(fn($e) => "php84-{$e}", $missing)) . "\n");
+	exit(1);
+}
+
 use EnchiladaMCP\McpServer;
 use EnchiladaMCP\StdioTransport;
 use Mail\InstanceManager;

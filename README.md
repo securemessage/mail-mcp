@@ -2,7 +2,7 @@
 
 A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/docs/enchilada-framework).
 
-Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js. Zero external dependencies beyond PHP 8.4 with `openssl` and `curl`.
+Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js. Zero external dependencies beyond PHP 8.4 with `openssl`, `curl`, and `iconv`.
 
 ## Features
 
@@ -18,7 +18,7 @@ Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js.
 
 ## Requirements
 
-- **PHP 8.4+** with `openssl`, `curl`, and `phar` extensions
+- **PHP 8.4+** with `openssl`, `curl`, `iconv`, and `phar` extensions
 - An IMAP/SMTP mail account (Gmail, Outlook, Fastmail, self-hosted, etc.)
 
 ## Quick Start (PHAR)

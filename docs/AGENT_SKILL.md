@@ -7,13 +7,13 @@ description: Install and configure the Mail MCP server for IMAP/SMTP email opera
 
 ## Prerequisites
 
-- PHP 8.4+ with `openssl` and `curl` extensions
+- PHP 8.4+ with `openssl`, `curl`, and `iconv` extensions
 - An IMAP/SMTP mail account with credentials (password or app password)
 
 Verify PHP:
 ```sh
 php -v            # Must be 8.4+
-php -m | grep -E 'openssl|curl'  # Both must be listed
+php -m | grep -E 'openssl|curl|iconv'  # All three must be listed
 ```
 
 ## Install

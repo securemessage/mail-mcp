@@ -282,11 +282,9 @@ class SocketImapClient implements ImapClientInterface
 		$response = $this->command("UID FETCH {$uid} (BODY.PEEK[{$partNumber}])");
 
 		foreach ($response['untagged'] as $line) {
-			// Look for the literal data
-			if (preg_match('/\{(\d+)\}$/', $line, $m)) {
-				$size = (int) $m[1];
-				$data = $this->readBytes($size);
-				$this->readLine(); // closing paren line
+			// command() already reads literal data and inlines it as {N}\r\n<data>
+			$data = $this->extractLiteral($line);
+			if ($data !== null) {
 				return $data;
 			}
 		}
@@ -849,34 +847,290 @@ class SocketImapClient implements ImapClientInterface
 
 	/**
 	 * Parse BODYSTRUCTURE response into Attachment array.
-	 * This is a simplified parser for the most common cases.
+	 *
+	 * Tokenizes the raw BODYSTRUCTURE string and recursively walks the
+	 * tree to assign correct IMAP MIME part numbers (RFC 3501 §6.4.5).
 	 */
 	private function parseBodyStructure(string $structure): array
 	{
+		// The BODYSTRUCTURE regex strips the outermost parens, so re-wrap
+		// to give the recursive parser a proper starting node.
+		$tokens = $this->tokenizeBodyStructure('(' . $structure . ')');
+		$pos = 0;
+		$node = $this->parseBodyNode($tokens, $pos);
+
 		$attachments = [];
-		$partNum = 0;
+		$this->collectAttachments($node, '', $attachments);
+		return $attachments;
+	}
 
-		// Simple heuristic: look for filename parameters in the structure
-		// Full BODYSTRUCTURE parsing is complex — this covers the common cases
-		preg_match_all('/"([^"]+)"\s+"([^"]+)"\s+(?:\([^)]*"name"\s+"([^"]+)"[^)]*\)|NIL)/i', $structure, $matches, PREG_SET_ORDER);
+	/**
+	 * Tokenize a BODYSTRUCTURE string into parentheses, strings, and atoms.
+	 *
+	 * @return string[]
+	 */
+	private function tokenizeBodyStructure(string $s): array
+	{
+		$tokens = [];
+		$len = strlen($s);
+		$i = 0;
 
-		foreach ($matches as $match) {
-			$type = strtolower($match[1] ?? '');
-			$subtype = strtolower($match[2] ?? '');
-			$filename = $match[3] ?? '';
+		while ($i < $len) {
+			$ch = $s[$i];
 
-			if (!empty($filename) && $type !== 'text') {
-				$partNum++;
-				$attachments[] = new Attachment(
-					filename: $this->decodeHeader($filename),
-					contentType: "{$type}/{$subtype}",
-					size: 0,
-					partNumber: (string) $partNum,
-				);
+			if ($ch === '(' || $ch === ')') {
+				$tokens[] = $ch;
+				$i++;
+			} elseif ($ch === '"') {
+				// Quoted string
+				$i++;
+				$str = '';
+				while ($i < $len && $s[$i] !== '"') {
+					if ($s[$i] === '\\' && $i + 1 < $len) {
+						$str .= $s[++$i];
+					} else {
+						$str .= $s[$i];
+					}
+					$i++;
+				}
+				$i++; // skip closing quote
+				$tokens[] = $str;
+			} elseif (ctype_space($ch)) {
+				$i++;
+			} else {
+				// Atom (NIL, numbers, etc.)
+				$atom = '';
+				while ($i < $len && !ctype_space($s[$i]) && $s[$i] !== '(' && $s[$i] !== ')' && $s[$i] !== '"') {
+					$atom .= $s[$i++];
+				}
+				$tokens[] = $atom;
 			}
 		}
 
-		return $attachments;
+		return $tokens;
+	}
+
+	/**
+	 * Recursively parse tokenized BODYSTRUCTURE into a node tree.
+	 *
+	 * Returns an array with keys:
+	 *   - 'multipart' => true, 'subtype' => string, 'children' => array
+	 *   - 'multipart' => false, 'type' => string, 'subtype' => string,
+	 *     'filename' => string, 'encoding' => string, 'size' => int,
+	 *     'disposition' => string, 'contentId' => string
+	 */
+	private function parseBodyNode(array &$tokens, int &$pos): array
+	{
+		if (!isset($tokens[$pos]) || $tokens[$pos] !== '(') {
+			return ['multipart' => false, 'type' => 'text', 'subtype' => 'plain', 'filename' => '', 'encoding' => '', 'size' => 0, 'disposition' => '', 'contentId' => ''];
+		}
+
+		$pos++; // skip opening '('
+
+		// Peek: if next token is '(' this is a multipart (children come first)
+		if (isset($tokens[$pos]) && $tokens[$pos] === '(') {
+			$children = [];
+			while (isset($tokens[$pos]) && $tokens[$pos] === '(') {
+				$children[] = $this->parseBodyNode($tokens, $pos);
+			}
+			// Next token after children is the multipart subtype
+			$subtype = strtolower($this->consumeToken($tokens, $pos));
+			// Skip remaining multipart extension data until closing ')'
+			$this->skipUntilClose($tokens, $pos);
+			return ['multipart' => true, 'subtype' => $subtype, 'children' => $children];
+		}
+
+		// Non-multipart (leaf part): "type" "subtype" params id desc encoding size ...
+		$type = strtolower($this->consumeToken($tokens, $pos));
+		$subtype = strtolower($this->consumeToken($tokens, $pos));
+
+		// Body parameters (parenthesized list or NIL) — look for "name"
+		$filename = '';
+		$params = $this->consumeParenListOrNil($tokens, $pos);
+		$filename = $this->findParam($params, 'name');
+
+		// Body id
+		$contentId = $this->consumeToken($tokens, $pos);
+		if (strtoupper($contentId) === 'NIL') $contentId = '';
+
+		// Body description (skip)
+		$this->consumeToken($tokens, $pos);
+
+		// Body encoding
+		$encoding = strtolower($this->consumeToken($tokens, $pos));
+		if (strtoupper($encoding) === 'NIL') $encoding = '';
+
+		// Body size
+		$sizeStr = $this->consumeToken($tokens, $pos);
+		$size = is_numeric($sizeStr) ? (int) $sizeStr : 0;
+
+		// For text/* types, there's an extra "lines" field
+		if ($type === 'text' && isset($tokens[$pos]) && is_numeric($tokens[$pos])) {
+			$pos++;
+		}
+
+		// Extension data: [md5] [disposition] [language] [location]
+		// Skip md5
+		if (isset($tokens[$pos]) && $tokens[$pos] !== ')') {
+			$this->consumeToken($tokens, $pos);
+		}
+		// Body disposition — look for filename override
+		$disposition = '';
+		if (isset($tokens[$pos]) && $tokens[$pos] === '(') {
+			$dispData = $this->consumeParenListOrNil($tokens, $pos);
+			if (!empty($dispData) && count($dispData) >= 1) {
+				$disposition = strtolower($dispData[0]);
+				$dispFilename = $this->findParam($dispData, 'filename');
+				if (!empty($dispFilename)) {
+					$filename = $dispFilename;
+				}
+			}
+		} elseif (isset($tokens[$pos]) && $tokens[$pos] !== ')') {
+			$this->consumeToken($tokens, $pos); // NIL
+		}
+
+		// Skip remaining extension data until closing ')'
+		$this->skipUntilClose($tokens, $pos);
+
+		return [
+			'multipart' => false,
+			'type' => $type,
+			'subtype' => $subtype,
+			'filename' => $filename,
+			'encoding' => $encoding,
+			'size' => $size,
+			'disposition' => $disposition,
+			'contentId' => $contentId,
+		];
+	}
+
+	/**
+	 * Consume a single token (string or atom) and advance position.
+	 */
+	private function consumeToken(array &$tokens, int &$pos): string
+	{
+		if (!isset($tokens[$pos])) return '';
+		return $tokens[$pos++];
+	}
+
+	/**
+	 * Consume a parenthesized list or NIL, returning flat array of tokens.
+	 */
+	private function consumeParenListOrNil(array &$tokens, int &$pos): array
+	{
+		if (!isset($tokens[$pos])) return [];
+
+		if ($tokens[$pos] !== '(') {
+			$pos++; // skip NIL or other atom
+			return [];
+		}
+
+		$pos++; // skip '('
+		$items = [];
+		$depth = 1;
+		while (isset($tokens[$pos]) && $depth > 0) {
+			if ($tokens[$pos] === '(') {
+				$depth++;
+				$pos++;
+			} elseif ($tokens[$pos] === ')') {
+				$depth--;
+				$pos++;
+			} else {
+				$items[] = $tokens[$pos++];
+			}
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Find a parameter value in a flat token list (case-insensitive key match).
+	 */
+	private function findParam(array $items, string $key): string
+	{
+		$upper = strtoupper($key);
+		for ($i = 0; $i < count($items) - 1; $i++) {
+			if (strtoupper($items[$i]) === $upper) {
+				return $items[$i + 1];
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Skip tokens (including nested parens) until the matching close ')'.
+	 */
+	private function skipUntilClose(array &$tokens, int &$pos): void
+	{
+		$depth = 1;
+		while (isset($tokens[$pos]) && $depth > 0) {
+			if ($tokens[$pos] === '(') $depth++;
+			elseif ($tokens[$pos] === ')') $depth--;
+			$pos++;
+		}
+	}
+
+	/**
+	 * Walk the parsed BODYSTRUCTURE tree and collect attachments with
+	 * correct IMAP part numbers per RFC 3501 §6.4.5.
+	 *
+	 * @param array  $node        Parsed node from parseBodyNode()
+	 * @param string $prefix      Parent part number prefix (e.g., "1.")
+	 * @param array  &$attachments Collected attachments
+	 */
+	private function collectAttachments(array $node, string $prefix, array &$attachments): void
+	{
+		if ($node['multipart']) {
+			foreach ($node['children'] as $i => $child) {
+				$partNum = $prefix . ($i + 1);
+				$this->collectAttachments($child, $partNum . '.', $attachments);
+			}
+			return;
+		}
+
+		// Leaf part — derive the part number from the prefix
+		// The prefix ends with '.' so strip it, unless we're at the top level
+		$partNumber = rtrim($prefix, '.');
+		if ($partNumber === '') {
+			$partNumber = '1'; // single-part message
+		}
+
+		$type = $node['type'];
+		$filename = $node['filename'];
+		$disposition = $node['disposition'];
+		$contentId = $node['contentId'];
+
+		// Determine if this is an attachment:
+		// - Has a filename, OR
+		// - Disposition is "attachment", OR
+		// - Not text/plain, not text/html, and has content (inline images with CID, etc.)
+		$isAttachment = false;
+		$isInline = false;
+
+		if (!empty($filename)) {
+			$isAttachment = true;
+		} elseif ($disposition === 'attachment') {
+			$isAttachment = true;
+		} elseif ($type !== 'text' && !empty($contentId)) {
+			$isAttachment = true;
+			$isInline = true;
+		}
+
+		if ($disposition === 'inline') {
+			$isInline = true;
+		}
+
+		if ($isAttachment) {
+			$attachments[] = new Attachment(
+				filename: !empty($filename) ? $this->decodeHeader($filename) : "{$type}_{$node['subtype']}",
+				contentType: "{$type}/{$node['subtype']}",
+				size: $node['size'],
+				partNumber: $partNumber,
+				encoding: $node['encoding'],
+				contentId: trim($contentId, '<>'),
+				isInline: $isInline,
+			);
+		}
 	}
 
 	public function __destruct()

@@ -5,6 +5,7 @@
 - **PHP 8.4+** with the following extensions:
   - `openssl` (TLS connections)
   - `curl` (OAuth token exchange)
+  - `iconv` (character set conversion for email headers and body)
   - `phar` (only if running from PHAR)
 - An IMAP/SMTP mail account (Gmail, Outlook, Fastmail, self-hosted, etc.)
 
