@@ -37,7 +37,8 @@
  */
 
  // Default Librairies location
-$libraries_path = defined('APPLICATION_LIBDIR') ? APPLICATION_LIBDIR : 'libraries' . DIRECTORY_SEPARATOR;
+$_autoload_root = defined('APPLICATION_ROOT') ? APPLICATION_ROOT : '';
+$libraries_path = defined('APPLICATION_LIBDIR') ? APPLICATION_LIBDIR : $_autoload_root . 'libraries' . DIRECTORY_SEPARATOR;
 
 // Locate places to look for to dynamicly load external supporting libraries
 $system_path_finder = function($path) use (&$system_path_finder){
@@ -149,5 +150,6 @@ unset($system_path_finder);
 unset($libraries_path);
 unset($autoload_finder);
 unset($autoload_file);
+unset($_autoload_root);
 
 ?>

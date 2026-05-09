@@ -120,55 +120,20 @@ $stub = <<<STUB
 Phar::mapPhar('{$pharName}');
 \$pharRoot = 'phar://{$pharName}/';
 
-// ── Bootstrap (replaces system/bootstrap.inc.php for phar context) ──
+// ── Bootstrap (standard Enchilada Framework) ──
 //
-// The standard Enchilada autoloader uses realpath() and relative paths,
-// which don't work inside a phar. We register a phar-aware autoloader
-// that resolves classes/ and libraries/ relative to the phar root.
+// The framework autoloader uses APPLICATION_ROOT for absolute path
+// resolution, which naturally handles phar:// URIs since app.conf.php
+// defines APPLICATION_ROOT as dirname(__DIR__) — resolving to the phar root.
 
-// Load app constants
 require_once \$pharRoot . 'system/app.conf.php';
+@include_once \$pharRoot . 'config/local.conf.php';
+require_once \$pharRoot . 'system/autoload.inc.php';
 
-// Override paths for phar:// context
-define('APPLICATION_LIBDIR', \$pharRoot . 'libraries/');
-define('APPLICATION_CLASSDIR', \$pharRoot . 'classes/');
-
-// Phar-aware autoloader (replaces system/autoload.inc.php for phar context)
-spl_autoload_register(function (\$className) use (\$pharRoot) {
-    \$className = str_replace('\\\\', '/', \$className);
-    \$libraryName = strtok(\$className, '/');
-
-    \$guesses = [
-        \$pharRoot . 'libraries/' . \$className . '.class.php',
-        \$pharRoot . 'libraries/' . \$className . '.php',
-        \$pharRoot . 'libraries/' . \$libraryName . '/' . \$className . '.class.php',
-        \$pharRoot . 'libraries/' . \$libraryName . '/' . \$className . '.php',
-        \$pharRoot . 'classes/' . \$className . '.class.php',
-        \$pharRoot . 'classes/' . \$className . '.interface.php',
-        \$pharRoot . 'classes/' . \$className . '.trait.php',
-    ];
-
-    foreach (\$guesses as \$guess) {
-        if (file_exists(\$guess)) {
-            require_once \$guess;
-            return;
-        }
-    }
-});
-
-// Load include components (tools autoloader adapted for phar)
+// Load include components
 foreach (glob(\$pharRoot . 'includes/*.inc.php') as \$incFile) {
     require_once \$incFile;
 }
-
-// Override tools autoloader to use phar paths
-spl_autoload_register(function (\$class) use (\$pharRoot) {
-    if (str_contains(\$class, '\\\\')) return;
-    \$toolFile = \$pharRoot . 'tools/' . \$class . '.php';
-    if (file_exists(\$toolFile)) {
-        require_once \$toolFile;
-    }
-});
 
 if (defined('APPLICATION_DEBUG') && APPLICATION_DEBUG) {
     error_reporting(E_ALL);
