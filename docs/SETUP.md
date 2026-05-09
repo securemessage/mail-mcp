@@ -268,5 +268,5 @@ The server automatically saves sent messages to the Sent folder via IMAP APPEND.
 
 - Store `instances.json` with restricted permissions: `chmod 600 ~/.config/mail-mcp/instances.json`
 - Use app passwords instead of your main account password
-- OAuth tokens are not stored on disk — they must be provided per session via `mail_connect`
+- OAuth tokens must currently be provided per session via `mail_connect`. Persistent token storage with auto-refresh (authorize once, use forever) is planned for a future release
 - The MCP transport is stdio (local process) — credentials never leave your machine
