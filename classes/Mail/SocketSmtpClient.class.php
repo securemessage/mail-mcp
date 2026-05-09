@@ -43,7 +43,7 @@ class SocketSmtpClient implements SmtpClientInterface
 		$this->verifySsl = $verifySsl;
 	}
 
-	public function connect(string $host, int $port, bool $tls = true): void
+	public function connect(string $host, int $port, bool $tls = true, bool $starttls = true): void
 	{
 		if ($this->socket !== null) {
 			$this->disconnect();
@@ -88,8 +88,8 @@ class SocketSmtpClient implements SmtpClientInterface
 		// Send EHLO
 		$this->ehlo();
 
-		// STARTTLS if not using implicit TLS
-		if (!$tls) {
+		// STARTTLS if not using implicit TLS (unless plaintext mode)
+		if (!$tls && $starttls) {
 			$this->starttls($host);
 		}
 	}

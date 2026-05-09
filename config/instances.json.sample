@@ -25,6 +25,17 @@
             "oauth_token_url": "https://oauth2.googleapis.com/token",
             "oauth_scopes": "https://mail.google.com/",
             "tls": true
+        },
+        "local-proxy": {
+            "description": "Local proxy (DavMail, stunnel, etc.)",
+            "imap_host": "127.0.0.1",
+            "imap_port": 1143,
+            "smtp_host": "127.0.0.1",
+            "smtp_port": 1025,
+            "username": "user@example.com",
+            "password": "secret",
+            "tls": false,
+            "starttls": false
         }
     }
 }

@@ -147,7 +147,8 @@ class InstanceManager
 		$client->connect(
 			$config['imap_host'],
 			$config['imap_port'] ?? 993,
-			$config['tls'] ?? true
+			$config['tls'] ?? true,
+			$config['starttls'] ?? true
 		);
 
 		$authType = $config['auth_type'] ?? 'basic';
@@ -176,11 +177,13 @@ class InstanceManager
 
 		// smtp_tls overrides tls for SMTP (587=STARTTLS needs tls=false, 465=implicit needs tls=true)
 		$smtpTls = $config['smtp_tls'] ?? $config['tls'] ?? true;
+		$smtpStarttls = $config['smtp_starttls'] ?? $config['starttls'] ?? true;
 
 		$client->connect(
 			$config['smtp_host'],
 			$config['smtp_port'] ?? 465,
-			$smtpTls
+			$smtpTls,
+			$smtpStarttls
 		);
 
 		$authType = $config['auth_type'] ?? 'basic';
