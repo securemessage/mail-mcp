@@ -48,5 +48,5 @@ jobs:
             "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=mail-mcp.phar"
 
           echo "Release ${VERSION} created with PHAR attachment"
-      env:
-        FORGE_TOKEN: ${{ secrets.FORGE_TOKEN }}
+        env:
+          FORGE_TOKEN: ${{ secrets.FORGE_TOKEN }}
