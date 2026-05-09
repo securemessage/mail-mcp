@@ -19,6 +19,8 @@
  * All rights reserved.
  */
 
+namespace EnchiladaOAuth;
+
 class OAuthCallbackServer
 {
 	/** @var resource|null */
@@ -112,11 +114,14 @@ class OAuthCallbackServer
 	 */
 	public function handleConnection(): ?string
 	{
-		$conn = @stream_socket_accept($this->socket, 0);
+		$conn = @stream_socket_accept($this->socket, 5);
 		if (!$conn) {
 			return null;
 		}
 
+		// Ensure blocking read — SSH tunnels may have latency
+		stream_set_blocking($conn, true);
+		stream_set_timeout($conn, 5);
 		$request = @fread($conn, 8192);
 		if (empty($request)) {
 			fclose($conn);
@@ -169,22 +174,40 @@ class OAuthCallbackServer
 	/**
 	 * Wait for the callback with a timeout (blocking mode).
 	 *
-	 * Use this when not integrating with an event loop.
+	 * Loops to handle spurious connections (favicon requests, SSH tunnel
+	 * probes, browser preflights) until the actual auth code arrives.
 	 *
 	 * @param int $timeout Seconds to wait before giving up
 	 * @return string|null Authorization code, or null on timeout/error
 	 */
 	public function waitForCallback(int $timeout = 120): ?string
 	{
-		$read = [$this->socket];
-		$write = $except = null;
-		$ready = stream_select($read, $write, $except, $timeout);
+		$deadline = time() + $timeout;
 
-		if ($ready === false || $ready === 0) {
-			return null;
+		while (time() < $deadline) {
+			$remaining = $deadline - time();
+			if ($remaining <= 0) break;
+
+			$read = [$this->socket];
+			$write = $except = null;
+			$ready = @stream_select($read, $write, $except, $remaining);
+
+			if ($ready === false) {
+				return null;
+			}
+
+			if ($ready === 0) {
+				continue;
+			}
+
+			$code = $this->handleConnection();
+			if ($code !== null) {
+				return $code;
+			}
+			// Not the auth callback (favicon, probe, etc.) — keep waiting
 		}
 
-		return $this->handleConnection();
+		return null;
 	}
 
 	/**

@@ -12,9 +12,11 @@
  * All rights reserved.
  */
 
+namespace EnchiladaOAuth;
+
 class EnchiladaOauth3LOClient {
 
-	/** @var EnchiladaHTTP */
+	/** @var \EnchiladaHTTP */
 	protected $http;
 
 	/** @var string */
@@ -53,7 +55,7 @@ class EnchiladaOauth3LOClient {
 	/**
 	 * Create a new OAuth 3LO client.
 	 *
-	 * @param EnchiladaHTTP $http                  HTTP client for token requests.
+	 * @param \EnchiladaHTTP $http                  HTTP client for token requests.
 	 * @param string        $authorizationEndpoint Full authorization endpoint URL.
 	 * @param string        $tokenEndpoint         Full token endpoint URL (or relative to HTTP base).
 	 * @param string        $clientId              OAuth2 client_id.
@@ -63,7 +65,7 @@ class EnchiladaOauth3LOClient {
 	 * @param string        $tokenFile             Path to file for persisting tokens.
 	 */
 	public function __construct(
-		EnchiladaHTTP $http,
+		\EnchiladaHTTP $http,
 		$authorizationEndpoint,
 		$tokenEndpoint,
 		$clientId,
@@ -173,7 +175,7 @@ class EnchiladaOauth3LOClient {
 
 		if (!is_array($response) || empty($response['access_token'])) {
 			$error = is_array($response) ? ($response['error_description'] ?? $response['error'] ?? 'Unknown error') : 'No response';
-			throw new Exception('OAuth code exchange failed: ' . $error);
+			throw new \Exception('OAuth code exchange failed: ' . $error);
 		}
 
 		$this->access_token = $response['access_token'];
@@ -226,7 +228,7 @@ class EnchiladaOauth3LOClient {
 			return $this->refreshAccessToken();
 		}
 
-		throw new Exception('No valid access token available. Run the authorization flow first.');
+		throw new \Exception('No valid access token available. Run the authorization flow first.');
 	}
 
 	/**
@@ -308,7 +310,7 @@ class EnchiladaOauth3LOClient {
 			$this->saveTokens();
 
 			$error = is_array($response) ? ($response['error_description'] ?? $response['error'] ?? 'Unknown error') : 'No response';
-			throw new Exception('OAuth token refresh failed: ' . $error . '. Re-authorize required.');
+			throw new \Exception('OAuth token refresh failed: ' . $error . '. Re-authorize required.');
 		}
 
 		$this->access_token = $response['access_token'];

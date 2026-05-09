@@ -122,12 +122,17 @@ class SocketImapClient implements ImapClientInterface
 		$tag = $this->nextTag();
 		$this->writeLine("{$tag} AUTHENTICATE XOAUTH2 {$encoded}");
 
-		// Read response — may get a continuation request (+) on failure with error details
+		// Read response — skip untagged lines (* CAPABILITY, etc.) and handle continuation (+)
 		$line = $this->readLine();
 
 		if (str_starts_with($line, '+')) {
 			// Server sent a challenge with error JSON — send empty response to cancel
 			$this->writeLine('');
+			$line = $this->readLine();
+		}
+
+		// Skip untagged responses (e.g., * CAPABILITY re-announce after auth)
+		while ($line !== null && str_starts_with($line, '* ')) {
 			$line = $this->readLine();
 		}
 

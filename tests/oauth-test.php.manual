@@ -1,0 +1,75 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Manual OAuth test — obtains and persists tokens for the gmail instance.
+ *
+ * Usage:
+ *   php tests/oauth-test.php.manual
+ *
+ * This starts a callback server. If no browser opens, copy the printed URL
+ * into a browser on a machine that CAN reach 127.0.0.1 on this host
+ * (e.g., via SSH port-forward: ssh -L PORT:127.0.0.1:PORT user@host).
+ */
+
+require_once dirname(__DIR__) . '/system/bootstrap.inc.php';
+
+use Mail\InstanceManager;
+use Mail\OAuthManager;
+
+$configPath = dirname(__DIR__) . '/config/instances.json';
+$manager = InstanceManager::fromFile($configPath);
+$config = $manager->getConfig('gmail');
+
+$oauth = new OAuthManager(null, function ($msg) {
+	echo "[oauth-test] {$msg}\n";
+});
+
+// Check if we already have valid tokens
+$token = $oauth->getAccessToken('gmail', $config);
+if ($token !== null) {
+	echo "\n✓ Already have a valid token (from cache or refresh).\n";
+	echo "  Token: " . substr($token, 0, 20) . "...\n";
+	echo "\n  Testing IMAP connection...\n";
+
+	$imap = $manager->getImapClient('gmail');
+	try {
+		$imap->connect('imap.gmail.com', 993, true);
+		$imap->authenticateXOAuth2('tuaris@gmail.com', $token);
+		echo "  ✓ IMAP connected and authenticated!\n";
+		$mailboxes = $imap->listMailboxes();
+		echo "  ✓ Found " . count($mailboxes) . " mailboxes\n";
+		foreach (array_slice($mailboxes, 0, 5) as $mb) {
+			echo "    - {$mb->name}\n";
+		}
+		$imap->disconnect();
+	} catch (\Throwable $e) {
+		echo "  ✗ IMAP failed: " . $e->getMessage() . "\n";
+	}
+	exit(0);
+}
+
+echo "\nNo cached tokens. Starting OAuth authorization flow...\n";
+echo "NOTE: The callback server listens on 127.0.0.1 on THIS machine.\n";
+echo "If your browser is on a different machine, use SSH port-forwarding.\n\n";
+
+try {
+	$token = $oauth->authorize('gmail', $config, 300);
+	echo "\n✓ Authorization successful!\n";
+	echo "  Token: " . substr($token, 0, 20) . "...\n";
+	echo "  Saved to: ~/.config/mail-mcp/tokens/gmail.json\n";
+
+	echo "\n  Testing IMAP connection...\n";
+	$imap = $manager->getImapClient('gmail');
+	$imap->connect('imap.gmail.com', 993, true);
+	$imap->authenticateXOAuth2('tuaris@gmail.com', $token);
+	echo "  ✓ IMAP connected and authenticated!\n";
+	$mailboxes = $imap->listMailboxes();
+	echo "  ✓ Found " . count($mailboxes) . " mailboxes\n";
+	foreach (array_slice($mailboxes, 0, 5) as $mb) {
+		echo "    - {$mb->name}\n";
+	}
+	$imap->disconnect();
+} catch (\Throwable $e) {
+	echo "\n✗ Failed: " . $e->getMessage() . "\n";
+	exit(1);
+}

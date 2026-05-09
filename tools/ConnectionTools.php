@@ -9,15 +9,32 @@
  */
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\StdioTransport;
+use EnchiladaOAuth\EnchiladaOauth3LOClient;
+use EnchiladaOAuth\OAuthCallbackServer;
 use Mail\InstanceManager;
+use Mail\OAuthManager;
 
 class ConnectionTools
 {
 	private InstanceManager $manager;
+	private OAuthManager $oauth;
+	private ?StdioTransport $transport = null;
 
 	public function __construct(InstanceManager $manager)
 	{
 		$this->manager = $manager;
+		$this->oauth = new OAuthManager(null, function($msg) {
+			fwrite(STDERR, "[mail-mcp] {$msg}\n");
+		});
+	}
+
+	/**
+	 * Inject the transport for non-blocking OAuth and notifications.
+	 */
+	public function setTransport(StdioTransport $transport): void
+	{
+		$this->transport = $transport;
 	}
 
 	/**
@@ -25,22 +42,54 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_connect',
-		description: 'Connect to IMAP and SMTP servers for a mail account. For OAuth accounts, provide the access_token. For basic auth accounts, credentials are read from configuration.',
+		description: 'Connect to IMAP and SMTP servers for a mail account. For OAuth accounts, authentication is handled automatically (tokens are cached and refreshed silently). Use force_reauth=true to re-authorize if tokens are invalid.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 				'imap' => ['type' => 'boolean', 'description' => 'Connect IMAP (default: true)'],
 				'smtp' => ['type' => 'boolean', 'description' => 'Connect SMTP (default: true)'],
-				'access_token' => ['type' => 'string', 'description' => 'OAuth2 access token (required for xoauth2 auth_type)'],
+				'force_reauth' => ['type' => 'boolean', 'description' => 'Force re-authorization for OAuth accounts (clears cached tokens)'],
 			],
 		]
 	)]
-	public function mail_connect(string $instance = '', bool $imap = true, bool $smtp = true, string $access_token = ''): array
+	public function mail_connect(string $instance = '', bool $imap = true, bool $smtp = true, bool $force_reauth = false): array
 	{
 		$name = $instance ?: null;
-		$result = ['instance' => $instance ?: $this->manager->getDefault()];
-		$token = !empty($access_token) ? $access_token : null;
+		$resolvedName = $instance ?: $this->manager->getDefault();
+		$result = ['instance' => $resolvedName];
+		$token = null;
+
+		// Handle OAuth token acquisition
+		if ($this->manager->isOAuth($name)) {
+			$config = $this->manager->getConfig($name);
+
+			if ($force_reauth) {
+				$this->oauth->clearTokens($resolvedName);
+			}
+
+			// Try silent token retrieval (cached or refresh)
+			$token = $this->oauth->getAccessToken($resolvedName, $config);
+
+			if ($token === null) {
+				// Need interactive authorization — use non-blocking flow if transport available
+				if ($this->transport !== null) {
+					return $this->startNonBlockingOAuth($resolvedName, $config);
+				}
+
+				// Fallback: blocking flow (standalone/test mode)
+				try {
+					$token = $this->oauth->authorize($resolvedName, $config);
+					$result['oauth'] = 'authorized (new tokens obtained)';
+				} catch (\Throwable $e) {
+					$result['oauth'] = 'failed: ' . $e->getMessage();
+					$result['hint'] = 'Ensure oauth_client_id, oauth_client_secret, oauth_authorize_url, and oauth_token_url are correctly configured in instances.json.';
+					return $result;
+				}
+			} else {
+				$result['oauth'] = 'authenticated (cached token)';
+			}
+		}
 
 		try {
 			if ($imap) {
@@ -58,10 +107,6 @@ class ConnectionTools
 			}
 		} catch (\Throwable $e) {
 			$result['smtp'] = 'failed: ' . $e->getMessage();
-		}
-
-		if ($this->manager->isOAuth($name) && empty($access_token)) {
-			$result['note'] = 'This is an OAuth account. Provide an access_token parameter or use the OAuth flow to authenticate.';
 		}
 
 		return $result;
@@ -100,10 +145,89 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_connection_status',
-		description: 'Show IMAP and SMTP connection status for all configured mail accounts.'
+		description: 'Show IMAP and SMTP connection status for all configured mail accounts, including OAuth token state.'
 	)]
 	public function mail_connection_status(): array
 	{
-		return $this->manager->listInstances();
+		$instances = $this->manager->listInstances();
+
+		// Enrich OAuth instances with token state
+		foreach ($instances as $name => &$info) {
+			if ($info['auth_type'] === 'xoauth2') {
+				$config = $this->manager->getConfig($name);
+				$info['oauth_has_tokens'] = $this->oauth->hasTokens($name, $config);
+			}
+		}
+
+		return $instances;
+	}
+
+	/**
+	 * Start non-blocking OAuth flow: returns URL immediately, handles callback in event loop.
+	 */
+	private function startNonBlockingOAuth(string $instanceName, array $config): array
+	{
+		$oauthClient = $this->oauth->getOAuthClient($instanceName, $config);
+
+		// Generate PKCE pair
+		$codeVerifier = EnchiladaOauth3LOClient::generateCodeVerifier();
+		$codeChallenge = EnchiladaOauth3LOClient::generateCodeChallenge($codeVerifier);
+
+		// Generate state for CSRF protection
+		$state = bin2hex(random_bytes(16));
+
+		// Start callback server on random port
+		$callbackServer = new OAuthCallbackServer('/callback', $state);
+		$callbackUrl = $callbackServer->getCallbackUrl();
+
+		// Update redirect URI on the OAuth client
+		$oauthClient->setRedirectUri($callbackUrl);
+
+		// Build authorization URL
+		$authUrl = $oauthClient->buildAuthorizationUrl($codeChallenge, $state);
+
+		// Send notification to IDE (shows as clickable link)
+		$this->transport->sendLogMessage(
+			'warning',
+			"Mail authorization required: {$authUrl}",
+			'mail-mcp'
+		);
+
+		// Try to open browser (works locally or via VS Code Remote SSH)
+		OAuthCallbackServer::tryOpenUrl($authUrl);
+
+		// Register callback listener in the transport event loop
+		$this->transport->addStream(
+			$callbackServer->getSocket(),
+			function ($stream) use ($callbackServer, $oauthClient, $codeVerifier, $instanceName) {
+				$code = $callbackServer->handleConnection();
+				if ($code !== null) {
+					try {
+						$oauthClient->exchangeCode($code, $codeVerifier);
+						fwrite(STDERR, "[mail-mcp] Authorization successful for '{$instanceName}'.\n");
+
+						if ($this->transport !== null) {
+							$this->transport->sendLogMessage(
+								'info',
+								"Authorization successful for '{$instanceName}'. Tokens saved. Run mail_connect again to connect.",
+								'mail-mcp'
+							);
+						}
+					} catch (\Exception $e) {
+						fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
+					}
+					$callbackServer->close();
+					return false; // Remove from event loop
+				}
+				return true; // Keep listening
+			}
+		);
+
+		return [
+			'instance' => $instanceName,
+			'oauth' => 'authorization_required',
+			'authorize_url' => $authUrl,
+			'message' => 'Open the URL above to authorize. Once approved, run mail_connect again to complete the connection.',
+		];
 	}
 }
