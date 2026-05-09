@@ -58,8 +58,9 @@ $system_path_finder = function($path) use (&$system_path_finder){
 			// Merge
 			$paths = array_merge($paths, $system_path_finder($path . $entry . '/'));
 		}
-		// Save
-		$paths[] = realpath($path);
+		// Save (realpath returns false for phar:// URIs, use path as-is in that case)
+		$resolved = realpath($path);
+		$paths[] = ($resolved !== false) ? $resolved : rtrim($path, '/');
 		// Close
 		$libraries_directory->close();
 	}
@@ -94,27 +95,30 @@ set_include_path(get_include_path() . PATH_SEPARATOR . implode(PATH_SEPARATOR, $
 
 // Register the system auto loader
 spl_autoload_register(function($className) {
-    $namespace = str_replace("\\","/",__NAMESPACE__);
+    $namespace = str_replace("\\" ,"/",__NAMESPACE__);
     $className = str_replace("\\","/",$className);
 
 	// For those cases where a library may not follow the normal patterns and consit of either a single file or has it's own autoloader
 	$libraryName = strtok($className, '/');
 
-	$guesses = array('libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.php",
-                     'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.class.php",
-                     'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.trait.php",
-                     'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.interface.php",                     
-                     'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.php",
-                     'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.class.php",
-                     'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.trait.php",
-                     'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.interface.php",
-					 'libraries' . DIRECTORY_SEPARATOR . $libraryName . DIRECTORY_SEPARATOR . strtolower($libraryName). ".php",
-					 'libraries' . DIRECTORY_SEPARATOR . $libraryName . DIRECTORY_SEPARATOR . "{$libraryName}.php",
-					 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace) ? "" : $namespace . DIRECTORY_SEPARATOR) . strtolower($libraryName) . ".php",
-					 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace) ? "" : $namespace . DIRECTORY_SEPARATOR) . "{$libraryName}.php",
-                     'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.class.php",
-                     'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.trait.php",
-                     'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.interface.php",
+	// Use APPLICATION_ROOT for absolute path resolution (enables phar:// support)
+	$root = defined('APPLICATION_ROOT') ? APPLICATION_ROOT : '';
+
+	$guesses = array($root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.class.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.trait.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace."/")."{$className}.interface.php",                     
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.class.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.trait.php",
+                     $root . 'libraries' . DIRECTORY_SEPARATOR . $className . DIRECTORY_SEPARATOR ."{$className}.interface.php",
+					 $root . 'libraries' . DIRECTORY_SEPARATOR . $libraryName . DIRECTORY_SEPARATOR . strtolower($libraryName). ".php",
+					 $root . 'libraries' . DIRECTORY_SEPARATOR . $libraryName . DIRECTORY_SEPARATOR . "{$libraryName}.php",
+					 $root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace) ? "" : $namespace . DIRECTORY_SEPARATOR) . strtolower($libraryName) . ".php",
+					 $root . 'libraries' . DIRECTORY_SEPARATOR . (empty($namespace) ? "" : $namespace . DIRECTORY_SEPARATOR) . "{$libraryName}.php",
+                     $root . 'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.class.php",
+                     $root . 'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.trait.php",
+                     $root . 'classes' . DIRECTORY_SEPARATOR . (empty($namespace)?"":$namespace . DIRECTORY_SEPARATOR) . "{$className}.interface.php",
     );
 
     foreach ($guesses as $guess){
