@@ -1,18 +1,64 @@
 # Mail MCP Server
 
-A Model Context Protocol server for IMAP/SMTP email operations with AI assistants. Built with PHP and the Enchilada Framework. Zero external dependencies beyond PHP 8.4 with `openssl` and `curl` extensions.
+A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/docs/enchilada-framework).
+
+Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js. Zero external dependencies beyond PHP 8.4 with `openssl` and `curl`.
 
 ## Features
 
-- **IMAP Operations** — Search, read, and manage emails across mailboxes
-- **SMTP Support** — Send and reply to emails with text/HTML content and attachments
-- **Multi-Account** — Manage multiple mail accounts, switchable at runtime
-- **OAuth/XOAUTH2** — Gmail, Microsoft 365, and Yahoo support via XOAUTH2 authentication
-- **Pure PHP Sockets** — No ext-imap dependency. Uses native PHP socket IMAP/SMTP clients
-- **PHAR Deployment** — Single-file deployment via `mail-mcp.phar`
-- **AI-Friendly** — Unified search with flexible filters, clear tool descriptions
+- **22 tools** — search, read, send, reply, drafts, attachments, threads, move, flags
+- **Multi-account** — manage multiple mail accounts, switchable at runtime
+- **Unified search** — single tool with 12+ filter parameters, multi-mailbox search across all folders
+- **Drafts** — create drafts for review before sending
+- **Organization** — move messages between folders, manage flags/labels
+- **Threads** — retrieve full conversation threads
+- **OAuth/XOAUTH2** — Gmail, Microsoft 365, Yahoo via XOAUTH2 authentication
+- **PHAR deployment** — single-file distribution, no installation required
+- Built on the [EnchiladaMCP](https://buenapp.org/docs/enchilada-mcp) library
 
-## Quick Start
+## Requirements
+
+- **PHP 8.4+** with `openssl`, `curl`, and `phar` extensions
+- An IMAP/SMTP mail account (Gmail, Outlook, Fastmail, self-hosted, etc.)
+
+## Quick Start (PHAR)
+
+Download the latest PHAR from [Releases](https://pacyworld.dev/pacyworld/mail-mcp/releases):
+
+```sh
+curl -LO https://pacyworld.dev/pacyworld/mail-mcp/releases/latest/download/mail-mcp.phar
+chmod +x mail-mcp.phar
+```
+
+Create a config file:
+
+```sh
+mkdir -p ~/.config/mail-mcp
+cat > ~/.config/mail-mcp/instances.json << 'EOF'
+{
+    "default": "personal",
+    "instances": {
+        "personal": {
+            "imap_host": "imap.example.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 465,
+            "username": "user@example.com",
+            "password": "your-app-password",
+            "tls": true
+        }
+    }
+}
+EOF
+```
+
+Start the server:
+
+```sh
+php mail-mcp.phar
+```
+
+For OAuth, multi-instance, and provider-specific settings, see [docs/SETUP.md](docs/SETUP.md).
 
 ### From Source
 
@@ -24,49 +70,43 @@ cp config/instances.json.sample config/instances.json
 php bin/mail-mcp
 ```
 
-### PHAR (Recommended)
+## AI Assistant Configuration
 
-```sh
-curl -LO https://pacyworld.dev/pacyworld/mail-mcp/releases/latest/download/mail-mcp.phar
-chmod +x mail-mcp.phar
-sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
-```
+### Windsurf / Cascade
 
-## Configuration
-
-Create `~/.config/mail-mcp/instances.json`:
+Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
-    "default": "personal",
-    "instances": {
-        "personal": {
-            "description": "Personal email",
-            "imap_host": "imap.example.com",
-            "imap_port": 993,
-            "smtp_host": "smtp.example.com",
-            "smtp_port": 465,
-            "username": "user@example.com",
-            "password": "your-password",
-            "tls": true
-        }
+    "mail": {
+        "command": "php",
+        "args": ["/path/to/mail-mcp.phar"]
     }
 }
 ```
 
-### Windsurf / Claude Code
-
-Add to your MCP configuration:
+### Claude Code / Claude Desktop
 
 ```json
 {
     "mcpServers": {
         "mail": {
             "command": "php",
-            "args": ["/usr/local/bin/mail-mcp"],
-            "env": {
-                "MAIL_MCP_CONFIG": "/home/YOUR_USER/.config/mail-mcp/instances.json"
-            }
+            "args": ["/path/to/mail-mcp.phar"]
+        }
+    }
+}
+```
+
+To use a config file in a non-default location:
+
+```json
+{
+    "mail": {
+        "command": "php",
+        "args": ["/path/to/mail-mcp.phar"],
+        "env": {
+            "MAIL_MCP_CONFIG": "/path/to/instances.json"
         }
     }
 }
@@ -76,24 +116,41 @@ Add to your MCP configuration:
 
 | Tool | Description |
 |------|-------------|
-| `mail_connect` | Connect to IMAP + SMTP for a mail account |
+| `mail_connect` | Connect to IMAP/SMTP for a mail account |
 | `mail_disconnect` | Disconnect from mail servers |
-| `mail_connection_status` | Show connection state |
+| `mail_connection_status` | Show connection state for all accounts |
 | `mail_list_mailboxes` | List available folders |
-| `mail_open_mailbox` | Select a folder |
-| `mail_search` | Search with flexible filters (from, to, subject, body, date, flags) |
+| `mail_open_mailbox` | Select a folder (returns message counts) |
+| `mail_create_mailbox` | Create a new folder |
+| `mail_search` | Search with flexible filters (from, to, cc, subject, body, date, flags, keywords) |
 | `mail_get_message` | Fetch single message with full content |
 | `mail_get_messages` | Fetch multiple messages (headers only) |
+| `mail_get_thread` | Retrieve full conversation thread |
+| `mail_delete_message` | Delete a message |
+| `mail_send` | Send a new email (with file attachments) |
+| `mail_reply` | Reply with quoted original message |
+| `mail_create_draft` | Save a draft for review before sending |
 | `mail_mark_read` | Mark message(s) as read |
 | `mail_mark_unread` | Mark message(s) as unread |
-| `mail_delete_message` | Delete a message |
-| `mail_send` | Send a new email |
-| `mail_reply` | Reply to an existing email |
+| `mail_set_flags` | Add/remove IMAP flags and keywords |
+| `mail_move_message` | Move messages between folders |
 | `mail_get_attachments` | List attachment metadata |
-| `mail_save_attachment` | Save attachment to local file |
+| `mail_save_attachment` | Save attachment to file or return as base64 |
 | `mail_list_instances` | List configured accounts |
 | `mail_switch_instance` | Change default account |
 
+All tools accept an optional `instance` parameter to target a specific mail account.
+
+## Agent Skill
+
+For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworld.dev/pacyworld/mail-mcp/raw/branch/master/docs/AGENT_SKILL.md).
+
+## Documentation
+
+- [docs/SETUP.md](docs/SETUP.md) — Full setup guide (auth methods, providers, IDE integration, troubleshooting)
+- [docs/TOOLS.md](docs/TOOLS.md) — Complete tool reference with all parameters
+- [docs/AGENT_SKILL.md](docs/AGENT_SKILL.md) — Agent skill for AI-assisted installation
+
 ## License
 
-BSD 2-Clause License — see [LICENSE](LICENSE) file.
+BSD 2-Clause — see [LICENSE](LICENSE).
