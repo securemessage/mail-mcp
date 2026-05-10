@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — OAuthManager Tests
+ * SecureMessage Mail MCP Server — OAuthManager Tests
  */
 
 use PHPUnit\Framework\TestCase;

@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Instance Management Tools
+ * SecureMessage Mail MCP Server — Instance Management Tools
  *
  * @package    MailMCP\Tools
  * @author     Daniel Morante

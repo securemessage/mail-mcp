@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Organization Tools
+ * SecureMessage Mail MCP Server — Organization Tools
  *
  * Move messages between folders and manage flags/labels.
  *

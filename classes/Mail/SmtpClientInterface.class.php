@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — SMTP Client Interface
+ * SecureMessage Mail MCP Server — SMTP Client Interface
  *
  * Abstraction layer for SMTP operations. Implementations may use
  * native PHP sockets, ext-imap's smtp support, or any other SMTP library.

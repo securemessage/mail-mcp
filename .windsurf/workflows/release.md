@@ -1,8 +1,8 @@
 ---
-description: Cut a new Mail MCP release (version bump, tag, PHAR build via CI)
+description: Cut a new SecureMessage Mail MCP release (version bump, tag, PHAR build via CI)
 ---
 
-# Mail MCP Release Workflow
+# SecureMessage Mail MCP Release Workflow
 
 ## Prerequisites
 - All changes committed and pushed to `master`

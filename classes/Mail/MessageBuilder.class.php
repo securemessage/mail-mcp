@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — RFC 2822 Message Builder
+ * SecureMessage Mail MCP Server — RFC 2822 Message Builder
  *
  * Constructs properly formatted email messages with support for
  * multipart content (text + HTML), attachments, and correct headers.

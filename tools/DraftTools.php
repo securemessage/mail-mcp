@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Draft Tools
+ * SecureMessage Mail MCP Server — Draft Tools
  *
  * @package    MailMCP\Tools
  * @author     Daniel Morante

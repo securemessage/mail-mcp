@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Pure PHP Socket IMAP Client
+ * SecureMessage Mail MCP Server — Pure PHP Socket IMAP Client
  *
  * IMAP4rev1 client using native PHP sockets with TLS support.
  * Implements the minimal command set needed for MCP email tools.

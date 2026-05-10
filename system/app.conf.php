@@ -1,13 +1,13 @@
 <?php
 /**
- * Mail MCP Server — Application Configuration
+ * SecureMessage Mail MCP Server — Application Configuration
  * Enchilada Framework 3.0
  */
 
-define('APPLICATION_NAME', 'Mail MCP');
+define('APPLICATION_NAME', 'SecureMessage.cc Mail MCP');
 define('APPLICATION_SLUG', 'mail-mcp');
 define('APPLICATION_VERSION', '1.0.0');
-define('APPLICATION_WEBSITE', 'https://pacyworld.dev/pacyworld/mail-mcp');
+define('APPLICATION_WEBSITE', 'https://www.securemessage.cc/mail-mcp');
 
 define('APPLICATION_ROOT', dirname(__DIR__) . DIRECTORY_SEPARATOR);
 define('APPLICATION_CONFDIR', (getenv('ENCHILADA_CONF_DIR') ?: (@$MULTISITE_CONFDIR ?: APPLICATION_ROOT . 'config' . DIRECTORY_SEPARATOR)));

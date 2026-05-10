@@ -1,9 +1,9 @@
 ---
 name: mail-mcp
-description: Install and configure the Mail MCP server for IMAP/SMTP email operations via AI assistants
+description: Install and configure the SecureMessage Mail MCP server for IMAP/SMTP email operations via AI assistants
 ---
 
-# Mail MCP Server — Installation Skill
+# SecureMessage Mail MCP Server — Installation Skill
 
 ## Prerequisites
 

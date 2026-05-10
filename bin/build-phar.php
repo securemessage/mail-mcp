@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Mail MCP Server — PHAR Builder
+ * SecureMessage Mail MCP Server — PHAR Builder
  *
  * Builds a self-contained .phar archive for distribution.
  * This builder follows a reusable pattern for Enchilada MCP projects.

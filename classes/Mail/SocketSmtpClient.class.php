@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Pure PHP Socket SMTP Client
+ * SecureMessage Mail MCP Server — Pure PHP Socket SMTP Client
  *
  * SMTP client using native PHP sockets with TLS support.
  * Supports AUTH LOGIN, AUTH PLAIN, and AUTH XOAUTH2.

@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — OAuth Manager
+ * SecureMessage Mail MCP Server — OAuth Manager
  *
  * Manages OAuth2 authentication flows for mail instances.
  * Handles token persistence, silent refresh, and browser-based authorization.

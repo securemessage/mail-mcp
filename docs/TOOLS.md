@@ -1,4 +1,4 @@
-# Mail MCP Server — Tool Reference
+# SecureMessage Mail MCP Server — Tool Reference
 
 22 tools organized into 8 categories. All tools accept an optional `instance` parameter to target a specific mail account.
 

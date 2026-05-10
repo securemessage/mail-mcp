@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Attachment Tools
+ * SecureMessage Mail MCP Server — Attachment Tools
  *
  * @package    MailMCP\Tools
  * @author     Daniel Morante

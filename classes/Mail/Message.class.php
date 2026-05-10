@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Email Message Data Object
+ * SecureMessage Mail MCP Server — Email Message Data Object
  *
  * @package    MailMCP\Mail
  * @author     Daniel Morante

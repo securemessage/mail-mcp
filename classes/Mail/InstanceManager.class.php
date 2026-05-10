@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Instance Manager
+ * SecureMessage Mail MCP Server — Instance Manager
  *
  * Multi-account configuration registry. Each instance represents a
  * mail account with IMAP + SMTP settings and optional OAuth config.

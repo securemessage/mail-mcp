@@ -1,4 +1,4 @@
-# Mail MCP Server — Setup Guide
+# SecureMessage Mail MCP Server — Setup Guide
 
 ## Requirements
 

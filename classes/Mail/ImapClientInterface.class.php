@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — IMAP Client Interface
+ * SecureMessage Mail MCP Server — IMAP Client Interface
  *
  * Abstraction layer for IMAP operations. Implementations may use
  * native PHP sockets, ext-imap (PECL), Horde_Imap_Client, or any

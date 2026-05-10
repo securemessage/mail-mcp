@@ -1,6 +1,6 @@
-# Mail MCP Server
+# SecureMessage Mail MCP Server
 
-A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/enchilada).
+A PHP Model Context Protocol server for IMAP/SMTP email operations, built on the [Enchilada Framework](https://buenapp.org/enchilada). Part of the [SecureMessage](https://www.securemessage.cc) project.
 
 Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js. Zero external dependencies beyond PHP 8.4 with `openssl`, `curl`, `iconv`, and `ctype`.
 

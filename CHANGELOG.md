@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Mail MCP Server are documented here.
+All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [1.0.0] - 2026-05-09
 

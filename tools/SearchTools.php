@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Search Tools
+ * SecureMessage Mail MCP Server — Search Tools
  *
  * @package    MailMCP\Tools
  * @author     Daniel Morante

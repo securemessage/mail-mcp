@@ -1,6 +1,6 @@
 <?php
 /**
- * Mail MCP Server — Thread Tools
+ * SecureMessage Mail MCP Server — Thread Tools
  *
  * Retrieve conversation threads grouped by References/In-Reply-To.
  *
