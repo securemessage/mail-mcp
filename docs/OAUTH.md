@@ -84,7 +84,9 @@ Call `mail_connect`. A browser window opens, you sign in and grant access. Done.
 
 ### Option C: OAuth with Pre-Approved Client (Workspace)
 
-If your Google Workspace admin blocks unverified third-party apps, you can use a well-known pre-approved client ID. Many organizations pre-approve major email clients.
+If your Google Workspace admin blocks unverified third-party apps, you can use a well-known pre-approved client ID. Many organizations pre-approve major email clients like Thunderbird.
+
+> **Tip:** Well-known client IDs for major email clients (Thunderbird, etc.) can be found on the [Mozilla wiki](https://wiki.mozilla.org/Thunderbird:Autoconfiguration:ConfigFileFormat#OAuth2) and similar public sources. Use any pre-approved client ID your organization trusts.
 
 ```json
 {
@@ -95,8 +97,8 @@ If your Google Workspace admin blocks unverified third-party apps, you can use a
         "smtp_port": 465,
         "auth_type": "xoauth2",
         "username": "you@company.com",
-        "oauth_client_id": "406964657835-aq8lmia8j95dhl1a2bvharmfk3t1hgqj.apps.googleusercontent.com",
-        "oauth_client_secret": "kSmqreRr0qwBWJgbf5Y-PjSU",
+        "oauth_client_id": "<pre-approved-client-id>",
+        "oauth_client_secret": "<client-secret>",
         "oauth_authorize_url": "https://accounts.google.com/o/oauth2/auth",
         "oauth_token_url": "https://oauth2.googleapis.com/token",
         "oauth_scopes": "https://mail.google.com/",
@@ -118,6 +120,8 @@ If your organization allows it:
 
 Microsoft 365 organizational accounts support OAuth with Exchange Online scopes.
 
+> **Tip:** Well-known public client IDs (e.g., Thunderbird's) can be found on the [Mozilla wiki](https://wiki.mozilla.org/Thunderbird:Autoconfiguration:ConfigFileFormat#OAuth2). Microsoft public clients use an empty `oauth_client_secret`.
+
 #### Configuration
 
 ```json
@@ -129,7 +133,7 @@ Microsoft 365 organizational accounts support OAuth with Exchange Online scopes.
         "smtp_port": 587,
         "auth_type": "xoauth2",
         "username": "you@company.com",
-        "oauth_client_id": "9e5f94bc-e8a4-4e73-b8be-63364c29d753",
+        "oauth_client_id": "<pre-approved-client-id>",
         "oauth_client_secret": "",
         "oauth_authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
         "oauth_token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",

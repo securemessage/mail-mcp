@@ -1,0 +1,4 @@
+# Well-known public OAuth client IDs (Thunderbird) documented in OAUTH.md
+# These are NOT secrets — they are published by Mozilla for third-party mail client use
+00bafb32d9fddf291387709395304b75b5afc0e6:docs/OAUTH.md:generic-api-key:99
+00bafb32d9fddf291387709395304b75b5afc0e6:docs/OAUTH.md:generic-api-key:132

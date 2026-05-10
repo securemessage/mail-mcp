@@ -6,7 +6,7 @@
 
 define('APPLICATION_NAME', 'SecureMessage.cc Mail MCP');
 define('APPLICATION_SLUG', 'mail-mcp');
-define('APPLICATION_VERSION', '1.0.0');
+define('APPLICATION_VERSION', '1.0.1');
 define('APPLICATION_WEBSITE', 'https://www.securemessage.cc/mail-mcp');
 
 define('APPLICATION_ROOT', dirname(__DIR__) . DIRECTORY_SEPARATOR);

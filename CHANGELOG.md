@@ -2,6 +2,16 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [1.0.1] - 2026-05-10
+
+### Fixed
+- Added `ctype` to PHP extension requirements in README, SETUP, and AGENT_SKILL (#6)
+- Fixed PHAR download URLs in documentation (Forgejo `/releases/latest/download/` returns 404)
+
+### Changed
+- Rebranded to SecureMessage Mail MCP (APPLICATION_NAME, X-Mailer header, all docs and docblocks)
+- APPLICATION_WEBSITE now points to https://www.securemessage.cc/mail-mcp
+
 ## [1.0.0] - 2026-05-09
 
 ### Added
