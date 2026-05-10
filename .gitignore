@@ -3,3 +3,4 @@ temp/
 *.phar
 .env
 .phpunit.cache/
+config/instances.json.bak

@@ -21,10 +21,26 @@
             "username": "user@company.com",
             "oauth_client_id": "xxxxx.apps.googleusercontent.com",
             "oauth_client_secret": "GOCSPX-xxxxx",
-            "oauth_authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "oauth_authorize_url": "https://accounts.google.com/o/oauth2/auth",
             "oauth_token_url": "https://oauth2.googleapis.com/token",
             "oauth_scopes": "https://mail.google.com/",
             "tls": true
+        },
+        "work-o365": {
+            "description": "Work Microsoft 365 (OAuth)",
+            "imap_host": "outlook.office365.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.office365.com",
+            "smtp_port": 587,
+            "auth_type": "xoauth2",
+            "username": "user@company.com",
+            "oauth_client_id": "your-azure-client-id",
+            "oauth_client_secret": "",
+            "oauth_authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            "oauth_token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            "oauth_scopes": "https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access",
+            "tls": true,
+            "smtp_tls": false
         },
         "local-proxy": {
             "description": "Local proxy (DavMail, stunnel, etc.)",

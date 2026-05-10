@@ -2,7 +2,7 @@
 
 All notable changes to the Mail MCP Server are documented here.
 
-## [0.4.0] - 2026-05-09
+## [1.0.0] - 2026-05-09
 
 ### Added
 - OAuth browser auto-open for VS Code / Windsurf Remote SSH (via `$BROWSER` env, `code --open-url`, `windsurf --open-url`)
