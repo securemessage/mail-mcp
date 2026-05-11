@@ -40,7 +40,8 @@
             "oauth_token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             "oauth_scopes": "https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access",
             "tls": true,
-            "smtp_tls": false
+            "smtp_tls": false,
+            "save_to_sent": false
         },
         "local-proxy": {
             "description": "Local proxy (DavMail, stunnel, etc.)",

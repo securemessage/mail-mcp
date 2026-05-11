@@ -152,6 +152,22 @@ interface ImapClientInterface
 	public function appendMessage(string $mailbox, string $rawMessage, array $flags = []): void;
 
 	/**
+	 * Send a NOOP command to verify the connection is alive.
+	 *
+	 * Useful as a keepalive or liveness check before operations.
+	 *
+	 * @return bool True if the server responded OK
+	 */
+	public function noop(): bool;
+
+	/**
+	 * Get the name of the currently selected mailbox.
+	 *
+	 * @return string|null Mailbox name, or null if none selected
+	 */
+	public function getCurrentMailbox(): ?string;
+
+	/**
 	 * Disconnect from the server.
 	 */
 	public function disconnect(): void;

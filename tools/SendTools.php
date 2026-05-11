@@ -252,6 +252,10 @@ class SendTools
 	/**
 	 * Save a sent message to the Sent folder (best-effort).
 	 *
+	 * Respects the "save_to_sent" config option (default: true).
+	 * Exchange/O365 auto-saves sent messages server-side, so users
+	 * on those servers should set save_to_sent: false to avoid duplicates.
+	 *
 	 * @param  string|null $instance    Instance name
 	 * @param  string      $rawMessage  Raw RFC 2822 message
 	 * @return bool                     True if saved successfully
@@ -259,6 +263,13 @@ class SendTools
 	private function saveToSentFolder(?string $instance, string $rawMessage): bool
 	{
 		try {
+			$config = $this->manager->getConfig($instance);
+
+			// Respect save_to_sent config (default: true)
+			if (($config['save_to_sent'] ?? true) === false) {
+				return false;
+			}
+
 			$imap = $this->manager->getImapClient($instance);
 			if (!$imap->isConnected()) {
 				return false;

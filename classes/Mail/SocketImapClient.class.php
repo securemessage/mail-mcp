@@ -219,7 +219,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function search(array $criteria = []): array
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 
 		if (empty($criteria)) {
 			$searchStr = 'ALL';
@@ -252,7 +252,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function fetchHeaders(array $uids): array
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 
 		if (empty($uids)) {
 			return [];
@@ -266,7 +266,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function fetchMessage(int $uid, bool $markSeen = false): Message
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 
 		$peek = $markSeen ? 'BODY[]' : 'BODY.PEEK[]';
 		$response = $this->command("UID FETCH {$uid} (UID FLAGS RFC822.SIZE BODYSTRUCTURE {$peek})");
@@ -282,7 +282,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function fetchAttachment(int $uid, string $partNumber): string
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 
 		$response = $this->command("UID FETCH {$uid} (BODY.PEEK[{$partNumber}])");
 
@@ -299,7 +299,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function addFlags(int $uid, array $flags): void
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 		$flagStr = implode(' ', $flags);
 		$response = $this->command("UID STORE {$uid} +FLAGS ({$flagStr})");
 
@@ -310,7 +310,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function removeFlags(int $uid, array $flags): void
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 		$flagStr = implode(' ', $flags);
 		$response = $this->command("UID STORE {$uid} -FLAGS ({$flagStr})");
 
@@ -331,7 +331,7 @@ class SocketImapClient implements ImapClientInterface
 
 	public function copyMessage(int $uid, string $targetMailbox): void
 	{
-		$this->requireAuth();
+		$this->requireMailbox();
 
 		$response = $this->command("UID COPY {$uid} " . $this->quoteString($targetMailbox));
 
@@ -404,9 +404,32 @@ class SocketImapClient implements ImapClientInterface
 		}
 	}
 
+	public function noop(): bool
+	{
+		if ($this->socket === null || !$this->authenticated) {
+			return false;
+		}
+
+		try {
+			$response = $this->command('NOOP');
+			return $response['status'] === 'OK';
+		} catch (\Throwable $e) {
+			return false;
+		}
+	}
+
+	public function getCurrentMailbox(): ?string
+	{
+		return $this->currentMailbox;
+	}
+
 	public function isConnected(): bool
 	{
-		return $this->socket !== null && $this->authenticated;
+		if ($this->socket === null || !$this->authenticated) {
+			return false;
+		}
+
+		return !feof($this->socket);
 	}
 
 	// ────────────────────────────────────────────────────────────
@@ -572,6 +595,21 @@ class SocketImapClient implements ImapClientInterface
 		$this->requireConnection();
 		if (!$this->authenticated) {
 			throw new \RuntimeException('Not authenticated to IMAP server');
+		}
+	}
+
+	/**
+	 * Assert that a mailbox is selected, auto-selecting INBOX if needed.
+	 *
+	 * IMAP requires a mailbox to be SELECTed before message operations.
+	 * Rather than returning a cryptic "Invalid state" error from the server,
+	 * we transparently select INBOX as a reasonable default.
+	 */
+	private function requireMailbox(): void
+	{
+		$this->requireAuth();
+		if ($this->currentMailbox === null) {
+			$this->selectMailbox('INBOX');
 		}
 	}
 

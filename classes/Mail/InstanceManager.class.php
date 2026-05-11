@@ -27,6 +27,12 @@ class InstanceManager
 	/** @var array<string,SmtpClientInterface> Cached SMTP clients */
 	private array $smtpClients = [];
 
+	/** @var array<string,string|null> Stored OAuth tokens for auto-reconnect */
+	private array $imapTokens = [];
+
+	/** @var array<string,bool> Tracks which instances have been successfully connected */
+	private array $imapConnected = [];
+
 	public function __construct(array $instances, string $default)
 	{
 		if (empty($instances)) {
@@ -107,6 +113,14 @@ class InstanceManager
 			$verifySsl = $config['verify_ssl'] ?? true;
 			$client = new SocketImapClient($config['timeout'] ?? 30, $verifySsl);
 			$this->imapClients[$name] = $client;
+			return $client;
+		}
+
+		$client = $this->imapClients[$name];
+
+		// Auto-reconnect if previously connected but connection dropped
+		if (isset($this->imapConnected[$name]) && !$client->isConnected()) {
+			$this->reconnectImap($name);
 		}
 
 		return $this->imapClients[$name];
@@ -161,6 +175,10 @@ class InstanceManager
 		} else {
 			$client->login($config['username'], $config['password'] ?? '');
 		}
+
+		// Store credentials for auto-reconnect
+		$this->imapTokens[$name] = $accessToken;
+		$this->imapConnected[$name] = true;
 	}
 
 	/**
@@ -263,11 +281,70 @@ class InstanceManager
 	 */
 	public function disconnectAll(): void
 	{
-		foreach ($this->imapClients as $client) {
+		foreach ($this->imapClients as $name => $client) {
 			$client->disconnect();
+			unset($this->imapConnected[$name]);
 		}
 		foreach ($this->smtpClients as $client) {
 			$client->disconnect();
+		}
+	}
+
+	/**
+	 * Transparently reconnect a dropped IMAP connection.
+	 *
+	 * Uses stored credentials from the last successful connectImap() call.
+	 * Restores the previously selected mailbox if any.
+	 *
+	 * @param string $name Instance name
+	 * @throws \RuntimeException If reconnection or re-authentication fails
+	 */
+	private function reconnectImap(string $name): void
+	{
+		$config = $this->getConfig($name);
+		$client = $this->imapClients[$name];
+
+		// Remember current mailbox for restoration
+		$lastMailbox = $client->getCurrentMailbox();
+
+		// Clean up the dead socket
+		try {
+			$client->disconnect();
+		} catch (\Throwable $e) {
+			// Ignore — socket is already dead
+		}
+
+		// Reconnect
+		$client->connect(
+			$config['imap_host'],
+			$config['imap_port'] ?? 993,
+			$config['tls'] ?? true,
+			$config['starttls'] ?? true
+		);
+
+		// Re-authenticate with stored credentials
+		$authType = $config['auth_type'] ?? 'basic';
+
+		if ($authType === 'xoauth2') {
+			$token = $this->imapTokens[$name] ?? null;
+			if (empty($token)) {
+				unset($this->imapConnected[$name]);
+				throw new \RuntimeException(
+					"IMAP connection dropped for '{$name}' and no OAuth token available for reconnect. Run mail_connect to re-authorize."
+				);
+			}
+			$client->authenticateXOAuth2($config['username'], $token);
+		} else {
+			$client->login($config['username'], $config['password'] ?? '');
+		}
+
+		// Restore previously selected mailbox
+		if ($lastMailbox !== null) {
+			try {
+				$client->selectMailbox($lastMailbox);
+			} catch (\Throwable $e) {
+				// Non-fatal — mailbox may have been deleted
+			}
 		}
 	}
 }
