@@ -19,7 +19,7 @@ No Composer, no Node.js, no external PHP libraries required.
 Download the latest release:
 
 ```sh
-curl -LO https://pacyworld.dev/pacyworld/mail-mcp/releases/download/v1.0.1/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.0/mail-mcp.phar
 chmod +x mail-mcp.phar
 sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
 ```
@@ -27,7 +27,7 @@ sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
 ### From Source
 
 ```sh
-git clone https://pacyworld.dev/pacyworld/mail-mcp.git
+git clone https://pacyworld.dev/securemessage/mail-mcp.git
 cd mail-mcp
 cp config/instances.json.sample config/instances.json
 # Edit config/instances.json

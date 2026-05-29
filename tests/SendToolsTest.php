@@ -8,6 +8,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use EnchiladaMCP\McpTool;
 use Mail\InstanceManager;
 
 class SendToolsTest extends TestCase
@@ -136,5 +137,54 @@ class SendToolsTest extends TestCase
 
 		$result = $method->invoke($this->tools, 'Alice <alice@example.com>, "Bob Smith" <bob@example.com>');
 		$this->assertCount(2, $result);
+	}
+
+	public function testMailReplyAcceptsNewParameters(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'mail_reply');
+		$params = $method->getParameters();
+		$paramNames = array_map(fn($p) => $p->getName(), $params);
+
+		$this->assertContains('cc', $paramNames, 'mail_reply should accept cc parameter');
+		$this->assertContains('bcc', $paramNames, 'mail_reply should accept bcc parameter');
+		$this->assertContains('draft', $paramNames, 'mail_reply should accept draft parameter');
+	}
+
+	public function testMailReplyNewParametersHaveDefaults(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'mail_reply');
+		$params = [];
+		foreach ($method->getParameters() as $p) {
+			$params[$p->getName()] = $p;
+		}
+
+		$this->assertTrue($params['cc']->isDefaultValueAvailable());
+		$this->assertEquals('', $params['cc']->getDefaultValue());
+
+		$this->assertTrue($params['bcc']->isDefaultValueAvailable());
+		$this->assertEquals('', $params['bcc']->getDefaultValue());
+
+		$this->assertTrue($params['draft']->isDefaultValueAvailable());
+		$this->assertFalse($params['draft']->getDefaultValue());
+	}
+
+	public function testMailReplySchemaIncludesNewProperties(): void
+	{
+		$attr = (new ReflectionMethod(SendTools::class, 'mail_reply'))
+			->getAttributes(McpTool::class)[0];
+		$args = $attr->getArguments();
+		$schema = $args['inputSchema'];
+		$properties = $schema['properties'];
+
+		$this->assertArrayHasKey('cc', $properties, 'Schema should include cc property');
+		$this->assertArrayHasKey('bcc', $properties, 'Schema should include bcc property');
+		$this->assertArrayHasKey('draft', $properties, 'Schema should include draft property');
+		$this->assertEquals('boolean', $properties['draft']['type']);
+	}
+
+	public function testFindDraftsMailboxExists(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'findDraftsMailbox');
+		$this->assertTrue($method->isPrivate(), 'findDraftsMailbox should be a private method');
 	}
 }

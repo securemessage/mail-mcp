@@ -135,6 +135,9 @@ class SendTools
 				'text' => ['type' => 'string', 'description' => 'Reply text body'],
 				'html' => ['type' => 'string', 'description' => 'Reply HTML body (optional)'],
 				'reply_all' => ['type' => 'boolean', 'description' => 'Reply to all recipients (default: false)'],
+				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional, overrides original CC list)'],
+				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
+				'draft' => ['type' => 'boolean', 'description' => 'Save as draft instead of sending (default: false)'],
 				'include_original' => ['type' => 'boolean', 'description' => 'Include quoted original message in reply (default: true)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 			],
@@ -146,13 +149,19 @@ class SendTools
 		string $text,
 		string $html = '',
 		bool $reply_all = false,
+		string $cc = '',
+		string $bcc = '',
+		bool $draft = false,
 		bool $include_original = true,
 		string $instance = ''
 	): array {
 		$name = $instance ?: null;
 		$config = $this->manager->getConfig($name);
 		$imap = $this->manager->getImapClient($name);
-		$smtp = $this->manager->getSmtpClient($name);
+
+		if (!$draft) {
+			$smtp = $this->manager->getSmtpClient($name);
+		}
 
 		// Fetch original message (full body needed for quoting)
 		$original = $imap->fetchMessage($uid, false);
@@ -179,17 +188,42 @@ class SendTools
 			$builder->addTo($addr);
 		}
 
-		// Reply-all: add original To and CC (excluding our own address)
+		// CC/BCC handling: explicit params override, then reply_all, then nothing
+		$excludedCc = [];
+		$hasCcOverride = !empty($cc);
+		$hasBccOverride = !empty($bcc);
+
+		if ($hasCcOverride) {
+			foreach ($this->parseAddresses($cc) as $addr) {
+				$builder->addCc($addr);
+			}
+		}
+		if ($hasBccOverride) {
+			foreach ($this->parseAddresses($bcc) as $addr) {
+				$builder->addBcc($addr);
+			}
+		}
+
+		$myAddress = strtolower($config['username']);
+
 		if ($reply_all) {
-			$myAddress = strtolower($config['username']);
 			foreach ($this->parseAddresses($original->to) as $addr) {
 				if (strtolower($addr) !== $myAddress) {
 					$builder->addTo($addr);
 				}
 			}
+			if (!$hasCcOverride) {
+				foreach ($this->parseAddresses($original->cc) as $addr) {
+					if (strtolower($addr) !== $myAddress) {
+						$builder->addCc($addr);
+					}
+				}
+			}
+		} elseif (!$hasCcOverride) {
+			// Track excluded CC recipients for the response
 			foreach ($this->parseAddresses($original->cc) as $addr) {
 				if (strtolower($addr) !== $myAddress) {
-					$builder->addCc($addr);
+					$excludedCc[] = $addr;
 				}
 			}
 		}
@@ -228,20 +262,46 @@ class SendTools
 		$rawMessage = $builder->build();
 		$recipients = $builder->getAllRecipients();
 
-		$smtp->send($config['username'], $recipients, $rawMessage);
+		if ($draft) {
+			$draftsFolder = $this->findDraftsMailbox($imap);
+			if ($draftsFolder === null) {
+				return ['error' => 'Could not find Drafts folder on the mail server'];
+			}
+			$imap->appendMessage($draftsFolder, $rawMessage, ['\\Draft']);
 
-		$result = [
-			'instance' => $instance ?: $this->manager->getDefault(),
-			'sent' => true,
-			'reply_to_uid' => $uid,
-			'subject' => $subject,
-			'recipients' => count($recipients),
-			'reply_all' => $reply_all,
-			'include_original' => $include_original,
-		];
+			$result = [
+				'instance' => $instance ?: $this->manager->getDefault(),
+				'draft_created' => true,
+				'drafts_folder' => $draftsFolder,
+				'reply_to_uid' => $uid,
+				'subject' => $subject,
+				'recipients' => count($recipients),
+			];
+		} else {
+			$smtp->send($config['username'], $recipients, $rawMessage);
 
-		// Save to Sent folder (best-effort)
-		$result['saved_to_sent'] = $this->saveToSentFolder($name, $rawMessage);
+			$result = [
+				'instance' => $instance ?: $this->manager->getDefault(),
+				'sent' => true,
+				'reply_to_uid' => $uid,
+				'subject' => $subject,
+				'recipients' => count($recipients),
+				'reply_all' => $reply_all,
+				'include_original' => $include_original,
+			];
+
+			// Save to Sent folder (best-effort)
+			$result['saved_to_sent'] = $this->saveToSentFolder($name, $rawMessage);
+		}
+
+		if (!empty($excludedCc)) {
+			$result['excluded_cc'] = $excludedCc;
+			$result['note'] = sprintf(
+				'%d CC recipient(s) from original message not included: %s. Use reply_all: true or cc parameter to include them.',
+				count($excludedCc),
+				implode(', ', $excludedCc)
+			);
+		}
 
 		return $result;
 	}
@@ -304,6 +364,32 @@ class SendTools
 		// Fall back to common names
 		$names = array_map(fn($mb) => $mb->name, $mailboxes);
 		foreach (self::SENT_FOLDER_NAMES as $candidate) {
+			if (in_array($candidate, $names)) {
+				return $candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/** Common drafts folder names to try, in priority order. */
+	private const DRAFTS_FOLDER_NAMES = ['Drafts', 'Draft', 'INBOX.Drafts'];
+
+	/**
+	 * Find the Drafts mailbox by checking \Drafts attribute or common names.
+	 */
+	private function findDraftsMailbox(\Mail\ImapClientInterface $imap): ?string
+	{
+		$mailboxes = $imap->listMailboxes();
+
+		foreach ($mailboxes as $mb) {
+			if (in_array('\\Drafts', $mb->flags)) {
+				return $mb->name;
+			}
+		}
+
+		$names = array_map(fn($mb) => $mb->name, $mailboxes);
+		foreach (self::DRAFTS_FOLDER_NAMES as $candidate) {
 			if (in_array($candidate, $names)) {
 				return $candidate;
 			}

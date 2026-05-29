@@ -39,24 +39,24 @@ description: Cut a new SecureMessage Mail MCP release (version bump, tag, PHAR b
    git push origin vX.Y.Z
    ```
    - This triggers the Forgejo Actions release workflow (tests + PHAR build + Forgejo release)
-   - Verify at: https://pacyworld.dev/pacyworld/mail-mcp/actions
+   - Verify at: https://pacyworld.dev/securemessage/mail-mcp/actions
 
 6. Wait for CI release workflow to complete
-   - Confirm release created at: https://pacyworld.dev/pacyworld/mail-mcp/releases
+   - Confirm release created at: https://pacyworld.dev/securemessage/mail-mcp/releases
    - Should have: `mail-mcp.phar` attached as release asset
    - Verify download URL works:
      ```sh
-     curl -sI -o /dev/null -w '%{http_code}' https://pacyworld.dev/pacyworld/mail-mcp/releases/download/vX.Y.Z/mail-mcp.phar
+     curl -sI -o /dev/null -w '%{http_code}' https://pacyworld.dev/securemessage/mail-mcp/releases/download/vX.Y.Z/mail-mcp.phar
      ```
      Must return `200`.
 
 ## Key Details
 
-- **Repo**: pacyworld.dev/pacyworld/mail-mcp (origin: https://pacyworld.dev/pacyworld/mail-mcp.git)
+- **Repo**: pacyworld.dev/securemessage/mail-mcp (origin: https://pacyworld.dev/securemessage/mail-mcp.git)
 - **Version file**: `system/app.conf.php` — `APPLICATION_VERSION`
 - **CI runner**: runner01.pacyworld.com (FreeBSD), label: FreeBSD
 - **CI release workflow**: `.forgejo/workflows/release.yml` — runs tests, builds PHAR, creates Forgejo release with asset
 - **PHAR builder**: `bin/build-phar.php`
 - **Tests**: `phpunit` (66 tests, 271 assertions as of v1.0.0)
 - **No FreeBSD port yet** — PHAR-only distribution for now
-- **Download URL pattern**: `https://pacyworld.dev/pacyworld/mail-mcp/releases/download/{tag}/mail-mcp.phar`
+- **Download URL pattern**: `https://pacyworld.dev/securemessage/mail-mcp/releases/download/{tag}/mail-mcp.phar`

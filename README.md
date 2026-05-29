@@ -23,10 +23,10 @@ Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js.
 
 ## Quick Start (PHAR)
 
-Download the latest PHAR from [Releases](https://pacyworld.dev/pacyworld/mail-mcp/releases):
+Download the latest PHAR from [Releases](https://pacyworld.dev/securemessage/mail-mcp/releases):
 
 ```sh
-curl -LO https://pacyworld.dev/pacyworld/mail-mcp/releases/download/v1.0.1/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.0/mail-mcp.phar
 chmod +x mail-mcp.phar
 ```
 
@@ -63,7 +63,7 @@ For OAuth, multi-instance, and provider-specific settings, see [docs/SETUP.md](d
 ### From Source
 
 ```sh
-git clone https://pacyworld.dev/pacyworld/mail-mcp.git
+git clone https://pacyworld.dev/securemessage/mail-mcp.git
 cd mail-mcp
 cp config/instances.json.sample config/instances.json
 # Edit config/instances.json with your mail server details
@@ -143,7 +143,7 @@ All tools accept an optional `instance` parameter to target a specific mail acco
 
 ## Agent Skill
 
-For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworld.dev/pacyworld/mail-mcp/raw/branch/master/docs/AGENT_SKILL.md).
+For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworld.dev/securemessage/mail-mcp/raw/branch/master/docs/AGENT_SKILL.md).
 
 ## Documentation
 

@@ -2,6 +2,17 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [1.1.0] - 2026-05-29
+
+### Added
+- `draft` parameter on `mail_reply` — save reply as draft instead of sending immediately (#9)
+- `cc` and `bcc` parameters on `mail_reply` — override or add CC/BCC recipients independently of `reply_all` (#11)
+- Excluded CC warning in `mail_reply` response when `reply_all` is false and original message had CC recipients (#10)
+
+### Changed
+- Repository moved from `pacyworld/mail-mcp` to `securemessage/mail-mcp` on pacyworld.dev
+- All documentation URLs updated to new repository location
+
 ## [1.0.1] - 2026-05-10
 
 ### Fixed

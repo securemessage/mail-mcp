@@ -19,7 +19,7 @@ php -m | grep -E 'openssl|curl|iconv|ctype'  # All four must be listed
 ## Install
 
 ```sh
-curl -LO https://pacyworld.dev/pacyworld/mail-mcp/releases/download/v1.0.1/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.0/mail-mcp.phar
 chmod +x mail-mcp.phar
 sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
 ```
@@ -121,4 +121,4 @@ mail_switch_instance instance="personal"
 
 ## Source Repository
 
-https://pacyworld.dev/pacyworld/mail-mcp
+https://pacyworld.dev/securemessage/mail-mcp
