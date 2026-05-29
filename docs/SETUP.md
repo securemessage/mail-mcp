@@ -7,6 +7,7 @@
   - `curl` (OAuth token exchange)
   - `iconv` (character set conversion for email headers and body)
   - `ctype` (character type checking)
+  - `fileinfo` (MIME type detection for attachments)
   - `phar` (only if running from PHAR)
 - An IMAP/SMTP mail account (Gmail, Outlook, Fastmail, self-hosted, etc.)
 

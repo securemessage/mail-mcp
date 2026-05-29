@@ -7,13 +7,13 @@ description: Install and configure the SecureMessage Mail MCP server for IMAP/SM
 
 ## Prerequisites
 
-- PHP 8.4+ with `openssl`, `curl`, `iconv`, and `ctype` extensions
+- PHP 8.4+ with `openssl`, `curl`, `iconv`, `ctype`, and `fileinfo` extensions
 - An IMAP/SMTP mail account with credentials (password or app password)
 
 Verify PHP:
 ```sh
 php -v            # Must be 8.4+
-php -m | grep -E 'openssl|curl|iconv|ctype'  # All four must be listed
+php -m | grep -E 'openssl|curl|iconv|ctype|fileinfo'  # All five must be listed
 ```
 
 ## Install

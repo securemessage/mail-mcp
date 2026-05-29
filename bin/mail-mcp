@@ -30,7 +30,7 @@ if (isset($argv[1]) && in_array($argv[1], $versionFlags, true)) {
 require_once dirname(__DIR__) . '/system/bootstrap.inc.php';
 
 // Verify required PHP extensions
-$requiredExtensions = ['openssl', 'curl', 'iconv'];
+$requiredExtensions = ['openssl', 'curl', 'iconv', 'fileinfo'];
 $missing = array_filter($requiredExtensions, fn($ext) => !extension_loaded($ext));
 if (!empty($missing)) {
 	fwrite(STDERR, "[mail-mcp] ERROR: Missing required PHP extension(s): " . implode(', ', $missing) . "\n");
