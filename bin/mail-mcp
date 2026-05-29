@@ -18,6 +18,14 @@
  * @license    BSD-2-Clause
  */
 
+// Handle --version before bootstrap (no autoloader needed)
+$versionFlags = ['--version', '-v', 'version', '-V'];
+if (isset($argv[1]) && in_array($argv[1], $versionFlags, true)) {
+	require_once dirname(__DIR__) . '/system/app.conf.php';
+	echo APPLICATION_NAME . ' ' . APPLICATION_VERSION . "\n";
+	exit(0);
+}
+
 // Enchilada Framework bootstrap
 require_once dirname(__DIR__) . '/system/bootstrap.inc.php';
 
