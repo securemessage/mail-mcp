@@ -152,17 +152,6 @@ For AI-assisted setup, point your AI agent to the [setup skill](https://pacyworl
 - [docs/TOOLS.md](docs/TOOLS.md) — Complete tool reference with all parameters
 - [docs/AGENT_SKILL.md](docs/AGENT_SKILL.md) — Agent skill for AI-assisted installation
 
-## Donations
-
-If you find this project useful, consider a small donation:
-
-| Currency | Address |
-|---|---|
-| **BTC** | `1B6eyXVRPxdEitW5vWrUnzzXUy6o38P9wN` |
-| **LTC** | `MCrnhTAHA3n6X8jUJQj9hed5CT585sJExQ` |
-| **PEPE (Ᵽ)** | `Pk3WZshXxi656RNNoVuZTCERVhhv4pyPJS` |
-| **DOGE** | `DQgDGexy5tJ4StbMdyGwgfyxhcAGTRrPVB` |
-
 ## License
 
 BSD 2-Clause — see [LICENSE](LICENSE).
