@@ -25,6 +25,7 @@ class InstanceTools
 	 */
 	#[McpTool(
 		name: 'mail_list_instances',
+		readOnlyHint: true,
 		description: 'List all configured mail accounts. Shows connection status, auth type, and which is the default.'
 	)]
 	public function mail_list_instances(): array

@@ -27,6 +27,7 @@ class ThreadTools
 	 */
 	#[McpTool(
 		name: 'mail_get_thread',
+		readOnlyHint: true,
 		description: 'Retrieve a full email conversation thread given any message UID within it. Finds all related messages by matching Message-ID, In-Reply-To, and References headers. Returns messages sorted oldest-first (chronological).',
 		inputSchema: [
 			'type' => 'object',

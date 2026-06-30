@@ -52,6 +52,7 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_get_messages',
+		readOnlyHint: true,
 		description: 'Retrieve multiple email messages by their UIDs. Returns headers and metadata (not full body). Use mail_get_message for full content of a specific message.',
 		inputSchema: [
 			'type' => 'object',

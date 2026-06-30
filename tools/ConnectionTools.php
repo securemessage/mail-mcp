@@ -145,6 +145,7 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_connection_status',
+		readOnlyHint: true,
 		description: 'Show IMAP and SMTP connection status for all configured mail accounts, including OAuth token state.'
 	)]
 	public function mail_connection_status(): array

@@ -25,6 +25,7 @@ class AttachmentTools
 	 */
 	#[McpTool(
 		name: 'mail_get_attachments',
+		readOnlyHint: true,
 		description: 'List attachment metadata (filename, type, size) for a message. Does not download the attachment content.',
 		inputSchema: [
 			'type' => 'object',

@@ -25,6 +25,7 @@ class SearchTools
 	 */
 	#[McpTool(
 		name: 'mail_search',
+		readOnlyHint: true,
 		description: 'Search for emails using flexible filters. Combine any filters: from, to, cc, subject, body text, date range, read/unread, answered/unanswered, flagged, keyword. All filters are ANDed together. Returns message headers (not full body). Use mail_get_message for full content.',
 		inputSchema: [
 			'type' => 'object',

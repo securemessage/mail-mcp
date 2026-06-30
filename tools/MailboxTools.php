@@ -25,6 +25,7 @@ class MailboxTools
 	 */
 	#[McpTool(
 		name: 'mail_list_mailboxes',
+		readOnlyHint: true,
 		description: 'List all available mailboxes (folders) on the mail server. Requires an active IMAP connection.',
 		inputSchema: [
 			'type' => 'object',
@@ -49,6 +50,7 @@ class MailboxTools
 	 */
 	#[McpTool(
 		name: 'mail_open_mailbox',
+		readOnlyHint: true,
 		description: 'Open a mailbox (folder) for reading. Returns message counts and status. Defaults to INBOX.',
 		inputSchema: [
 			'type' => 'object',

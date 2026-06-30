@@ -3,10 +3,10 @@
 namespace EnchiladaMCP;
 
 /* Enchilada Framework 3.0
- * MCP Tool Registry
+ * MCP Tool & Resource Registry
  *
- * Reflection-based tool discovery and invocation registry.
- * Automatically discovers methods marked with #[McpTool] attributes.
+ * Reflection-based tool and resource discovery and invocation registry.
+ * Automatically discovers methods marked with #[McpTool] or #[McpResource] attributes.
  *
  * Software License Agreement (BSD License)
  * 
@@ -19,7 +19,7 @@ class ToolRegistry
 	/**
 	 * Registered tools indexed by name.
 	 *
-	 * @var array<string,array{name:string,description:string,inputSchema:array}>
+	 * @var array<string,array{name:string,description:string,inputSchema:array,annotations?:array}>
 	 */
 	private array $tools = [];
 
@@ -31,15 +31,36 @@ class ToolRegistry
 	private array $handlers = [];
 
 	/**
-	 * Register an object's methods marked with #[McpTool] attribute.
+	 * Registered resource templates indexed by URI template.
 	 *
-	 * @param object $handler Object containing tool methods
+	 * @var array<string,array{uriTemplate:string,name:string,description:string,mimeType:string}>
+	 */
+	private array $resourceTemplates = [];
+
+	/**
+	 * Resource handlers indexed by URI template.
+	 *
+	 * @var array<string,array{0:object,1:string}>
+	 */
+	private array $resourceHandlers = [];
+
+	/**
+	 * Register an object's methods marked with #[McpTool] or #[McpResource] attributes.
+	 *
+	 * @param object $handler Object containing tool/resource methods
 	 */
 	public function register(object $handler): void
 	{
 		$reflection = new \ReflectionClass($handler);
 
 		foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+			// Check for resource attributes
+			$resourceAttrs = $method->getAttributes(McpResource::class);
+			if (!empty($resourceAttrs)) {
+				$this->registerResource($handler, $method, $resourceAttrs[0]->newInstance());
+			}
+
+			// Check for tool attributes
 			$attributes = $method->getAttributes(McpTool::class);
 
 			if (empty($attributes)) {
@@ -65,11 +86,24 @@ class ToolRegistry
 				$inputSchema = $this->buildSchemaFromMethod($method);
 			}
 
-			$this->tools[$toolName] = [
+			$tool = [
 				'name' => $toolName,
 				'description' => $description ?: "Tool: {$toolName}",
 				'inputSchema' => $inputSchema,
 			];
+
+			$annotations = array_filter([
+				'readOnlyHint' => $attr->readOnlyHint,
+				'destructiveHint' => $attr->destructiveHint,
+				'idempotentHint' => $attr->idempotentHint,
+				'openWorldHint' => $attr->openWorldHint,
+			], fn($v) => $v !== null);
+
+			if (!empty($annotations)) {
+				$tool['annotations'] = $annotations;
+			}
+
+			$this->tools[$toolName] = $tool;
 
 			$this->handlers[$toolName] = [$handler, $method->getName()];
 		}
@@ -124,7 +158,7 @@ class ToolRegistry
 	/**
 	 * List all registered tools in MCP protocol format.
 	 *
-	 * @return array<array{name:string,description:string,inputSchema:array}>
+	 * @return array<array{name:string,description:string,inputSchema:array,annotations?:array}>
 	 */
 	public function listTools(): array
 	{
@@ -173,5 +207,159 @@ class ToolRegistry
 	public function hasTool(string $name): bool
 	{
 		return isset($this->handlers[$name]);
+	}
+
+	/**
+	 * Register a single resource template from a method and attribute.
+	 *
+	 * @param object          $handler  Handler object
+	 * @param \ReflectionMethod $method Method reflection
+	 * @param McpResource     $attr     Resource attribute instance
+	 */
+	private function registerResource(object $handler, \ReflectionMethod $method, McpResource $attr): void
+	{
+		$uriTemplate = $attr->uriTemplate;
+		$name = $attr->name ?? $method->getName();
+
+		$description = $attr->description;
+		if ($description === null) {
+			$docComment = $method->getDocComment();
+			if ($docComment) {
+				preg_match('/\*\s+([^@\n]+)/', $docComment, $matches);
+				$description = trim($matches[1] ?? '');
+			}
+		}
+
+		$this->resourceTemplates[$uriTemplate] = [
+			'uriTemplate' => $uriTemplate,
+			'name' => $name,
+			'description' => $description ?: "Resource: {$name}",
+			'mimeType' => $attr->mimeType,
+		];
+
+		$this->resourceHandlers[$uriTemplate] = [$handler, $method->getName()];
+	}
+
+	/**
+	 * List registered resource templates (URIs with {param} placeholders) in MCP protocol format.
+	 *
+	 * @return array<array{uriTemplate:string,name:string,description:string,mimeType:string}>
+	 */
+	public function listResourceTemplates(): array
+	{
+		return array_values(array_filter($this->resourceTemplates, function ($meta) {
+			return str_contains($meta['uriTemplate'], '{');
+		}));
+	}
+
+	/**
+	 * List registered static resources (fixed URIs without placeholders) in MCP protocol format.
+	 *
+	 * @return array<array{uri:string,name:string,description:string,mimeType:string}>
+	 */
+	public function listResources(): array
+	{
+		$resources = [];
+		foreach ($this->resourceTemplates as $meta) {
+			if (!str_contains($meta['uriTemplate'], '{')) {
+				$resources[] = [
+					'uri' => $meta['uriTemplate'],
+					'name' => $meta['name'],
+					'description' => $meta['description'],
+					'mimeType' => $meta['mimeType'],
+				];
+			}
+		}
+		return $resources;
+	}
+
+	/**
+	 * Check if any resources (static or templated) are registered.
+	 *
+	 * @return bool True if at least one resource exists
+	 */
+	public function hasResources(): bool
+	{
+		return !empty($this->resourceTemplates);
+	}
+
+	/**
+	 * Read a resource by URI, matching against registered templates.
+	 *
+	 * Extracts parameters from the URI by matching against templates
+	 * and invokes the handler method with extracted values.
+	 *
+	 * @param  string $uri URI to resolve (e.g., "myapp://users/42")
+	 * @return array       Resource content: {uri, mimeType, text}
+	 * @throws \InvalidArgumentException If no template matches
+	 */
+	public function readResource(string $uri): array
+	{
+		foreach ($this->resourceTemplates as $template => $meta) {
+			$params = $this->matchUriTemplate($template, $uri);
+			if ($params !== null) {
+				[$handler, $methodName] = $this->resourceHandlers[$template];
+				$method = new \ReflectionMethod($handler, $methodName);
+
+				// Map extracted params to method parameters by name
+				$args = [];
+				foreach ($method->getParameters() as $param) {
+					$paramName = $param->getName();
+					if (isset($params[$paramName])) {
+						$args[] = $params[$paramName];
+					} elseif ($param->isOptional()) {
+						$args[] = $param->getDefaultValue();
+					} else {
+						throw new \InvalidArgumentException("Missing URI parameter: {$paramName}");
+					}
+				}
+
+				$result = $method->invokeArgs($handler, $args);
+				$text = is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_SLASHES);
+
+				return [
+					'uri' => $uri,
+					'mimeType' => $meta['mimeType'],
+					'text' => $text,
+				];
+			}
+		}
+
+		throw new \InvalidArgumentException("No resource template matches URI: {$uri}");
+	}
+
+	/**
+	 * Match a URI against a template, extracting parameter values.
+	 *
+	 * Template: "myapp://users/{id}/repos/{repo}"
+	 * URI:      "myapp://users/42/repos/hello"
+	 * Returns:  ["id" => "42", "repo" => "hello"]
+	 *
+	 * @param  string     $template URI template with {param} placeholders
+	 * @param  string     $uri      Actual URI to match
+	 * @return array|null           Extracted params or null if no match
+	 */
+	private function matchUriTemplate(string $template, string $uri): ?array
+	{
+		// Build regex from template: quote literal parts, convert {param} to named groups
+		$regex = '#^' . preg_replace_callback(
+			'/\\\\\\{([^}]+)\\\\\\}/',
+			function ($m) {
+				return '(?P<' . $m[1] . '>[^/]+)';
+			},
+			preg_quote($template, '#')
+		) . '$#';
+
+		if (preg_match($regex, $uri, $matches)) {
+			$params = [];
+			foreach ($matches as $key => $value) {
+				if (is_string($key)) {
+					$params[$key] = $value;
+				}
+			}
+			return $params;
+		}
+
+		return null;
 	}
 }

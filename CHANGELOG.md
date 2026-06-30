@@ -2,6 +2,11 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [1.1.1] - 2026-06-30
+
+### Added
+- MCP tool annotations (`readOnlyHint`) on read-only tools: `mail_get_attachments`, `mail_connection_status`, `mail_list_instances`, `mail_list_mailboxes`, `mail_open_mailbox`, `mail_get_messages`, `mail_search`, `mail_get_thread`. Vendored from updated EnchiladaMCP library. Lets MCP clients distinguish safe reads from mailbox-mutating calls.
+
 ## [1.1.0] - 2026-05-29
 
 ### Added

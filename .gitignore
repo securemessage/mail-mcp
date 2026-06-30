@@ -4,3 +4,4 @@ temp/
 .env
 .phpunit.cache/
 config/instances.json.bak
+config/instances.json.full
