@@ -154,15 +154,7 @@ class StdioTransport
 			// Check additional streams
 			foreach ($this->additionalStreams as $key => $entry) {
 				if (in_array($entry['stream'], $read, true)) {
-					try {
-						$result = ($entry['callback'])($entry['stream']);
-					} catch (\Throwable $e) {
-						$this->log("Stream callback error: " . $e->getMessage());
-						$result = false;
-					}
-					if ($result === false) {
-						unset($this->additionalStreams[$key]);
-					}
+					($entry['callback'])($entry['stream']);
 				}
 			}
 		}
@@ -237,10 +229,32 @@ class StdioTransport
 			return;
 		}
 
-		$response = $this->server->handleRequest($request);
+		// Defense-in-depth: McpServer::handleRequest() already catches \Throwable
+		// internally and converts failures to JSON-RPC/tool error responses. This
+		// outer guard exists so that a future change to McpServer, or any error
+		// occurring outside that guarded region (e.g. response serialization),
+		// can never take down the whole transport for every session sharing it.
+		try {
+			$response = $this->server->handleRequest($request);
+		} catch (\Throwable $e) {
+			$this->log("Unhandled exception in handleRequest: " . $e->getMessage());
+			$id = $request['id'] ?? null;
+			$response = [
+				'jsonrpc' => '2.0',
+				'id' => $id,
+				'error' => [
+					'code' => -32603,
+					'message' => 'Internal error: ' . $e->getMessage(),
+				],
+			];
+		}
 
 		if (!empty($response)) {
 			$output = json_encode($response, JSON_UNESCAPED_SLASHES);
+			if ($output === false) {
+				$this->log("Failed to encode response: " . json_last_error_msg());
+				return;
+			}
 			$this->log("Sending: " . substr($output, 0, 200) . (strlen($output) > 200 ? '...' : ''));
 			fwrite(STDOUT, $output . "\n");
 			fflush(STDOUT);
