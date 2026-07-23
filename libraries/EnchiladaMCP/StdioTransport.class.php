@@ -176,8 +176,12 @@ class StdioTransport
 		}
 		$output = json_encode($msg, JSON_UNESCAPED_SLASHES);
 		$this->log("Notification: " . substr($output, 0, 200));
-		fwrite(STDOUT, $output . "\n");
-		fflush(STDOUT);
+		if (@fwrite(STDOUT, $output . "\n") === false) {
+			$this->log("stdout write failed (pipe broken?), stopping");
+			$this->running = false;
+			return;
+		}
+		@fflush(STDOUT);
 	}
 
 	/**
@@ -256,8 +260,12 @@ class StdioTransport
 				return;
 			}
 			$this->log("Sending: " . substr($output, 0, 200) . (strlen($output) > 200 ? '...' : ''));
-			fwrite(STDOUT, $output . "\n");
-			fflush(STDOUT);
+			if (@fwrite(STDOUT, $output . "\n") === false) {
+				$this->log("stdout write failed (pipe broken?), stopping");
+				$this->running = false;
+				return;
+			}
+			@fflush(STDOUT);
 		}
 	}
 

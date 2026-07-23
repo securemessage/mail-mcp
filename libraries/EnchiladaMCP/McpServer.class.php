@@ -29,6 +29,12 @@ class McpServer
 	/** @var string Server instructions for AI agents (included in initialize response). */
 	private string $instructions = '';
 
+	/** @var bool Whether the server has been initialized at least once. */
+	private bool $initialized = false;
+
+	/** @var callable|null Callback invoked when a re-initialize is received (cleanup prior state). */
+	private $onReinitialize = null;
+
 	/**
 	 * Create a new MCP server instance.
 	 *
@@ -56,6 +62,24 @@ class McpServer
 	public function setInstructions(string $instructions): self
 	{
 		$this->instructions = $instructions;
+		return $this;
+	}
+
+	/**
+	 * Set a callback invoked when the client sends a second initialize request.
+	 *
+	 * Stdio MCP servers are single-connection, but some IDE hosts will send
+	 * a fresh initialize on the same pipe to "restart" the logical session.
+	 * The callback should clean up any stateful resources (browser sessions,
+	 * open connections, etc.) so the server can start fresh without a process
+	 * restart.
+	 *
+	 * @param  callable $callback Invoked with no arguments before re-init response
+	 * @return self               Fluent interface
+	 */
+	public function onReinitialize(callable $callback): self
+	{
+		$this->onReinitialize = $callback;
 		return $this;
 	}
 
@@ -89,6 +113,8 @@ class McpServer
 				'notifications/initialized' => null,
 				'tools/list' => $this->handleToolsList($params),
 				'tools/call' => $this->handleToolsCall($params),
+				'resources/templates/list' => $this->handleResourceTemplatesList($params),
+				'resources/read' => $this->handleResourcesRead($params),
 				'ping' => new \stdClass(),
 				default => throw new \Exception("Method not found: {$method}", -32601),
 			};
@@ -113,6 +139,20 @@ class McpServer
 	 */
 	private function handleInitialize(array $params): array
 	{
+		// If already initialized, invoke the cleanup callback so callers can
+		// reset stateful resources (browser sessions, etc.) before the client
+		// treats this as a fresh connection.
+		if ($this->initialized && $this->onReinitialize !== null) {
+			try {
+				($this->onReinitialize)();
+			} catch (\Throwable $e) {
+				// Non-fatal — best-effort cleanup
+				fwrite(STDERR, "[mcp] Re-initialize cleanup error: {$e->getMessage()}\n");
+			}
+		}
+
+		$this->initialized = true;
+
 		$result = [
 			'protocolVersion' => $this->protocolVersion,
 			'capabilities' => [
@@ -124,6 +164,10 @@ class McpServer
 
 		if (!empty($this->instructions)) {
 			$result['instructions'] = $this->instructions;
+		}
+
+		if ($this->registry->hasResources()) {
+			$result['capabilities']['resources'] = new \stdClass();
 		}
 
 		return $result;
@@ -161,25 +205,17 @@ class McpServer
 		try {
 			$result = $this->registry->callTool($name, $arguments);
 		} catch (\Throwable $e) {
-			return [
-				'content' => [
-					[
-						'type' => 'text',
-						'text' => json_encode(['error' => $e->getMessage()]),
-					],
-				],
-				'isError' => true,
-			];
+			return ToolResult::error($e->getMessage())->toArray();
 		}
 
-		return [
-			'content' => [
-				[
-					'type' => 'text',
-					'text' => is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_SLASHES),
-				],
-			],
-		];
+		// Typed return: tools that return ToolResult get pass-through
+		if ($result instanceof ToolResult) {
+			return $result->toArray();
+		}
+
+		// Backward compat: plain values auto-wrap as text
+		$text = is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_SLASHES);
+		return ToolResult::text($text)->toArray();
 	}
 
 	/**
@@ -195,6 +231,45 @@ class McpServer
 			'jsonrpc' => '2.0',
 			'id' => $id,
 			'result' => $result,
+		];
+	}
+
+	/**
+	 * Handle resources/templates/list request.
+	 *
+	 * @param  array<string,mixed> $params Request parameters
+	 * @return array<string,mixed>         Resource templates list response
+	 */
+	private function handleResourceTemplatesList(array $params): array
+	{
+		return [
+			'resourceTemplates' => $this->registry->listResourceTemplates(),
+		];
+	}
+
+	/**
+	 * Handle resources/read request.
+	 *
+	 * @param  array<string,mixed> $params Request parameters (must include 'uri')
+	 * @return array<string,mixed>         Resource read response
+	 * @throws \Exception                  If URI not provided or no match
+	 */
+	private function handleResourcesRead(array $params): array
+	{
+		$uri = $params['uri'] ?? '';
+
+		if (empty($uri)) {
+			throw new \Exception("Missing required parameter: uri", -32602);
+		}
+
+		try {
+			$content = $this->registry->readResource($uri);
+		} catch (\Throwable $e) {
+			throw new \Exception("Resource not found: {$e->getMessage()}", -32602);
+		}
+
+		return [
+			'contents' => [$content],
 		];
 	}
 
