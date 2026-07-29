@@ -54,6 +54,7 @@ class ToolRegistrationTest extends TestCase
 			'mail_open_mailbox',
 			'mail_search',
 			'mail_get_message',
+			'mail_get_headers',
 			'mail_get_messages',
 			'mail_mark_read',
 			'mail_mark_unread',

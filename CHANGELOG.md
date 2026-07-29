@@ -2,6 +2,12 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [Unreleased]
+
+### Added
+- `mail_get_headers` — returns the raw RFC 5322 header block exactly as transmitted, with folding, field case, and repeated fields all intact. `mail_get_message` unfolds continuation lines and keeps only the last instance of each field name, which is right for display but loses information that matters when inspecting `DKIM-Signature`, `Received`, or `Authentication-Results`. Optionally filters to named fields, returning every instance of each in order.
+- `ImapClientInterface::fetchRawHeaders()` — fetches a header block via `BODY.PEEK[HEADER]` without the parsing that `fetchHeaders()` applies. `PEEK`, so inspecting a message does not mark it read.
+
 ## [1.1.1] - 2026-06-30
 
 ### Added

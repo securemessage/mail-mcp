@@ -81,6 +81,21 @@ interface ImapClientInterface
 	public function fetchHeaders(array $uids): array;
 
 	/**
+	 * Fetch the complete raw header block of a message, exactly as transmitted.
+	 *
+	 * Unlike fetchHeaders(), nothing is decoded, unfolded, lowercased or
+	 * deduplicated, and no field is filtered out. Callers that need to inspect
+	 * a message as a signer or a relay saw it -- DKIM-Signature, Received,
+	 * Authentication-Results -- require the original octets, because folding
+	 * and repeated fields are significant to them.
+	 *
+	 * @param  int    $uid Message UID
+	 * @return string      Raw header block, CRLF line endings, no trailing blank line
+	 * @throws \RuntimeException If message does not exist
+	 */
+	public function fetchRawHeaders(int $uid): string;
+
+	/**
 	 * Fetch a complete message including body and attachment metadata.
 	 *
 	 * @param  int     $uid      Message UID

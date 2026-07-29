@@ -9,6 +9,7 @@
  */
 
 use EnchiladaMCP\McpTool;
+use Mail\HeaderBlock;
 use Mail\InstanceManager;
 
 class MessageTools
@@ -45,6 +46,52 @@ class MessageTools
 			'instance' => $instance ?: $this->manager->getDefault(),
 			'message' => $message->toArray(true),
 		];
+	}
+
+	/**
+	 * Get the raw header block of a message, exactly as transmitted.
+	 */
+	#[McpTool(
+		name: 'mail_get_headers',
+		readOnlyHint: true,
+		description: 'Retrieve the raw RFC 5322 header block of a message, exactly as transmitted — nothing decoded, unfolded, or deduplicated. Use this instead of mail_get_message when the exact octets matter: inspecting DKIM-Signature, Authentication-Results, or the Received chain. Optionally filter to specific header names, which returns every instance of each in the order it appears.',
+		inputSchema: [
+			'type' => 'object',
+			'properties' => [
+				'uid' => ['type' => 'integer', 'description' => 'Message UID'],
+				'names' => [
+					'type' => 'array',
+					'items' => ['type' => 'string'],
+					'description' => 'Header names to return (case-insensitive, e.g. ["DKIM-Signature", "Received"]). Omit for the whole block.',
+				],
+				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+			],
+			'required' => ['uid'],
+		]
+	)]
+	public function mail_get_headers(int $uid, array $names = [], string $instance = ''): array
+	{
+		$client = $this->manager->getImapClient($instance ?: null);
+		$raw = $client->fetchRawHeaders($uid);
+
+		$result = [
+			'instance' => $instance ?: $this->manager->getDefault(),
+			'uid' => $uid,
+		];
+
+		if (empty($names)) {
+			$result['raw'] = $raw;
+			return $result;
+		}
+
+		// Repeated fields are all kept, in order: a Received chain or a series of
+		// Authentication-Results is meaningless collapsed to one entry.
+		$matched = HeaderBlock::select($raw, $names);
+
+		$result['count'] = count($matched);
+		$result['headers'] = $matched;
+
+		return $result;
 	}
 
 	/**

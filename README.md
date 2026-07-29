@@ -124,6 +124,7 @@ To use a config file in a non-default location:
 | `mail_create_mailbox` | Create a new folder |
 | `mail_search` | Search with flexible filters (from, to, cc, subject, body, date, flags, keywords) |
 | `mail_get_message` | Fetch single message with full content |
+| `mail_get_headers` | Fetch raw RFC 5322 headers, folding and repeats intact |
 | `mail_get_messages` | Fetch multiple messages (headers only) |
 | `mail_get_thread` | Retrieve full conversation thread |
 | `mail_delete_message` | Delete a message |

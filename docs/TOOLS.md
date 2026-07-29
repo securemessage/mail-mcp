@@ -84,6 +84,27 @@ Retrieve a specific message by UID with full content (text body, HTML body, atta
 | `mark_read` | boolean | no | false | Mark as read when retrieving |
 | `instance` | string | no | default | Mail account name |
 
+### mail_get_headers
+Retrieve the raw RFC 5322 header block of a message, exactly as transmitted. Nothing is decoded, unfolded, or deduplicated.
+
+Use this rather than `mail_get_message` when the exact octets matter. `mail_get_message` unfolds continuation lines and keeps only the last instance of each field name, which is fine for display but destroys what these need:
+
+- **`DKIM-Signature`** — folding and the exact `h=` list are part of what was signed
+- **`Received`** — the chain is meaningless collapsed to one entry
+- **`Authentication-Results`** — one per authenticating hop
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `uid` | integer | yes | — | Message UID |
+| `names` | string[] | no | all | Header names to return (case-insensitive) |
+| `instance` | string | no | default | Mail account name |
+
+With `names` omitted, returns the whole block as `raw`. With `names` given, returns `headers` — every matching field, in the order it appeared, each including its continuation lines.
+
+```json
+{ "uid": 454, "names": ["DKIM-Signature", "Received"] }
+```
+
 ### mail_get_messages
 Retrieve multiple messages by UIDs. Returns headers only (not full body).
 

@@ -264,6 +264,29 @@ class SocketImapClient implements ImapClientInterface
 		return $this->parseFetchResponses($response['untagged']);
 	}
 
+	public function fetchRawHeaders(int $uid): string
+	{
+		$this->requireMailbox();
+
+		// BODY.PEEK[HEADER] returns the header block verbatim. Deliberately not
+		// HEADER.FIELDS: the point is to see every field, including ones this
+		// client does not model. PEEK so that inspecting a message does not
+		// mark it read.
+		$response = $this->command("UID FETCH {$uid} (BODY.PEEK[HEADER])");
+
+		foreach ($response['untagged'] as $line) {
+			$data = $this->extractLiteral($line);
+			if ($data !== null) {
+				// The server terminates the block with a blank line. Trim only
+				// that, never internal whitespace -- a continuation line's
+				// leading WSP is part of the field.
+				return rtrim($data, "\r\n");
+			}
+		}
+
+		throw new \RuntimeException("Message UID {$uid} not found");
+	}
+
 	public function fetchMessage(int $uid, bool $markSeen = false): Message
 	{
 		$this->requireMailbox();
