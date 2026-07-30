@@ -79,7 +79,7 @@ class DraftTools
 			$builder->addBcc($addr);
 		}
 
-		// If replying to a message, set threading headers
+		// If replying to a message, set threading headers and quote original
 		if ($in_reply_to > 0) {
 			try {
 				$original = $imap->fetchMessage($in_reply_to, false);
@@ -90,8 +90,27 @@ class DraftTools
 				if (!preg_match('/^Re:/i', $subject)) {
 					$builder->setSubject('Re: ' . $subject);
 				}
+
+				// Append quoted original body (same as mail_reply with include_original)
+				$attribution = $this->buildAttribution($original->date, $original->from);
+
+				if (!empty($text) && $original->textBody !== null) {
+					$quotedText = $this->quoteTextBody($original->textBody);
+					$text = $text . "\n\n" . $attribution . "\n" . $quotedText;
+				}
+
+				if (!empty($html) || $original->htmlBody !== null) {
+					$origHtmlContent = $original->htmlBody ?? nl2br(htmlspecialchars($original->textBody ?? '', ENT_QUOTES, 'UTF-8'));
+					$htmlAttribution = htmlspecialchars($attribution, ENT_QUOTES, 'UTF-8');
+					$replyHtmlContent = !empty($html) ? $html : nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
+					$html = $replyHtmlContent
+						. '<br><br><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex">'
+						. '<p>' . $htmlAttribution . '</p>'
+						. $origHtmlContent
+						. '</blockquote>';
+				}
 			} catch (\Throwable $e) {
-				// Non-fatal — continue without threading headers
+				// Non-fatal — continue without threading headers or quoted body
 			}
 		}
 
@@ -177,6 +196,10 @@ class DraftTools
 
 	/**
 	 * Parse comma-separated address string into array.
+	 *
+	 * Respects RFC 5322 quoted display names so that commas inside
+	 * quotes (e.g. "Last, First" <user@example.com>) are not treated
+	 * as address separators.
 	 */
 	private function parseAddresses(string $addresses): array
 	{
@@ -185,16 +208,69 @@ class DraftTools
 		}
 
 		$result = [];
-		foreach (explode(',', $addresses) as $addr) {
-			$addr = trim($addr);
-			if (preg_match('/<([^>]+)>/', $addr, $m)) {
-				$addr = $m[1];
-			}
-			if (!empty($addr)) {
-				$result[] = $addr;
+		$current = '';
+		$inQuotes = false;
+		$len = strlen($addresses);
+
+		for ($i = 0; $i < $len; $i++) {
+			$ch = $addresses[$i];
+			if ($ch === '"') {
+				$inQuotes = !$inQuotes;
+				$current .= $ch;
+			} elseif ($ch === ',' && !$inQuotes) {
+				$addr = trim($current);
+				if (preg_match('/<([^>]+)>/', $addr, $m)) {
+					$addr = $m[1];
+				}
+				if (!empty($addr)) {
+					$result[] = $addr;
+				}
+				$current = '';
+			} else {
+				$current .= $ch;
 			}
 		}
 
+		// Last address
+		$addr = trim($current);
+		if (preg_match('/<([^>]+)>/', $addr, $m)) {
+			$addr = $m[1];
+		}
+		if (!empty($addr)) {
+			$result[] = $addr;
+		}
+
 		return $result;
+	}
+
+	/**
+	 * Build attribution line for quoted replies.
+	 */
+	private function buildAttribution(string $date, string $from): string
+	{
+		$formattedDate = $date;
+		$timestamp = strtotime($date);
+		if ($timestamp !== false) {
+			$formattedDate = date('D, j M Y', $timestamp);
+		}
+
+		$sender = $from;
+		if (preg_match('/^"?([^"<]+)"?\s*</', $from, $m)) {
+			$sender = trim($m[1]);
+		}
+
+		return "On {$formattedDate}, {$sender} wrote:";
+	}
+
+	/**
+	 * Quote a plain text body for reply (prefix each line with >).
+	 */
+	private function quoteTextBody(string $body): string
+	{
+		$lines = explode("\n", str_replace("\r\n", "\n", $body));
+		$quoted = array_map(function ($line) {
+			return '> ' . $line;
+		}, $lines);
+		return implode("\n", $quoted);
 	}
 }

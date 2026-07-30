@@ -158,6 +158,16 @@ class InstanceManager
 		$config = $this->getConfig($name);
 		$client = $this->getImapClient($name);
 
+		// Tear down any stale connection before reconnecting
+		if (isset($this->imapConnected[$name])) {
+			try {
+				$client->disconnect();
+			} catch (\Throwable $e) {
+				// Ignore — socket may already be dead
+			}
+			unset($this->imapConnected[$name]);
+		}
+
 		$client->connect(
 			$config['imap_host'],
 			$config['imap_port'] ?? 993,

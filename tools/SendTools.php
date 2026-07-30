@@ -432,6 +432,10 @@ class SendTools
 
 	/**
 	 * Parse comma-separated address string into array.
+	 *
+	 * Respects RFC 5322 quoted display names so that commas inside
+	 * quotes (e.g. "Last, First" <user@example.com>) are not treated
+	 * as address separators.
 	 */
 	private function parseAddresses(string $addresses): array
 	{
@@ -440,15 +444,36 @@ class SendTools
 		}
 
 		$result = [];
-		foreach (explode(',', $addresses) as $addr) {
-			$addr = trim($addr);
-			// Extract email from "Name <email>" format
-			if (preg_match('/<([^>]+)>/', $addr, $m)) {
-				$addr = $m[1];
+		$current = '';
+		$inQuotes = false;
+		$len = strlen($addresses);
+
+		for ($i = 0; $i < $len; $i++) {
+			$ch = $addresses[$i];
+			if ($ch === '"') {
+				$inQuotes = !$inQuotes;
+				$current .= $ch;
+			} elseif ($ch === ',' && !$inQuotes) {
+				$addr = trim($current);
+				if (preg_match('/<([^>]+)>/', $addr, $m)) {
+					$addr = $m[1];
+				}
+				if (!empty($addr)) {
+					$result[] = $addr;
+				}
+				$current = '';
+			} else {
+				$current .= $ch;
 			}
-			if (!empty($addr)) {
-				$result[] = $addr;
-			}
+		}
+
+		// Last address
+		$addr = trim($current);
+		if (preg_match('/<([^>]+)>/', $addr, $m)) {
+			$addr = $m[1];
+		}
+		if (!empty($addr)) {
+			$result[] = $addr;
 		}
 
 		return $result;

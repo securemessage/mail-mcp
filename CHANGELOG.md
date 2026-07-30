@@ -4,9 +4,15 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-07-30
+
 ### Added
-- `mail_get_headers` — returns the raw RFC 5322 header block exactly as transmitted, with folding, field case, and repeated fields all intact. `mail_get_message` unfolds continuation lines and keeps only the last instance of each field name, which is right for display but loses information that matters when inspecting `DKIM-Signature`, `Received`, or `Authentication-Results`. Optionally filters to named fields, returning every instance of each in order.
-- `ImapClientInterface::fetchRawHeaders()` — fetches a header block via `BODY.PEEK[HEADER]` without the parsing that `fetchHeaders()` applies. `PEEK`, so inspecting a message does not mark it read.
+- `mail_get_headers` — returns the raw RFC 5322 header block exactly as transmitted, with folding, field case, and repeated fields all intact. Optionally filters to named fields, returning every instance of each in order.
+
+### Fixed
+- `mail_create_draft` with `in_reply_to` now includes the quoted original message body (#14)
+- `mail_reply` / `mail_create_draft` no longer corrupt addresses when display names contain commas (e.g. `"Last, First" <user@example.com>`) (#12, #13)
+- IMAP reconnect after transient auth error no longer fails due to stale connection state (#15)
 
 ## [1.1.1] - 2026-06-30
 

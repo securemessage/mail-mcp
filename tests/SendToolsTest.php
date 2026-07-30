@@ -139,6 +139,38 @@ class SendToolsTest extends TestCase
 		$this->assertCount(2, $result);
 	}
 
+	/**
+	 * Regression test for issues #12/#13: comma inside quoted display name
+	 * must not split the address into two malformed entries.
+	 */
+	public function testParseAddressesCommaInQuotedDisplayName(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'parseAddresses');
+		$method->setAccessible(true);
+
+		$result = $method->invoke(
+			$this->tools,
+			'"WILLIAMS, MEGAN" <mewilliams@example.org>, alice@example.com'
+		);
+		$this->assertCount(2, $result);
+		$this->assertEquals('mewilliams@example.org', $result[0]);
+		$this->assertEquals('alice@example.com', $result[1]);
+	}
+
+	public function testParseAddressesMultipleCommasInQuotedNames(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'parseAddresses');
+		$method->setAccessible(true);
+
+		$result = $method->invoke(
+			$this->tools,
+			'"Hailperin-Lausch, Rebecca" <rhlausch@example.org>, "Smith, John" <jsmith@example.com>'
+		);
+		$this->assertCount(2, $result);
+		$this->assertEquals('rhlausch@example.org', $result[0]);
+		$this->assertEquals('jsmith@example.com', $result[1]);
+	}
+
 	public function testMailReplyAcceptsNewParameters(): void
 	{
 		$method = new ReflectionMethod(SendTools::class, 'mail_reply');

@@ -20,7 +20,7 @@ No Composer, no Node.js, no external PHP libraries required.
 Download the latest release:
 
 ```sh
-curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.0/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.4/mail-mcp.phar
 chmod +x mail-mcp.phar
 sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
 ```
