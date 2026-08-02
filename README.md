@@ -26,7 +26,7 @@ Uses pure PHP socket IMAP/SMTP clients — no ext-imap, no Composer, no Node.js.
 Download the latest PHAR from [Releases](https://pacyworld.dev/securemessage/mail-mcp/releases):
 
 ```sh
-curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.5/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.6/mail-mcp.phar
 chmod +x mail-mcp.phar
 ```
 

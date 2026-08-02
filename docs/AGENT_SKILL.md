@@ -19,7 +19,7 @@ php -m | grep -E 'openssl|curl|iconv|ctype|fileinfo'  # All five must be listed
 ## Install
 
 ```sh
-curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.5/mail-mcp.phar
+curl -LO https://pacyworld.dev/securemessage/mail-mcp/releases/download/v1.1.6/mail-mcp.phar
 chmod +x mail-mcp.phar
 sudo mv mail-mcp.phar /usr/local/bin/mail-mcp
 ```

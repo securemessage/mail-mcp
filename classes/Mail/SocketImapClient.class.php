@@ -36,6 +36,12 @@ class SocketImapClient implements ImapClientInterface
 	/** @var bool Whether to verify SSL peer certificate */
 	private bool $verifySsl = true;
 
+	/** @var float Last successful IMAP activity timestamp (microtime) */
+	private float $lastActivity = 0.0;
+
+	/** Seconds of inactivity before isConnected() probes with NOOP */
+	private const IDLE_PROBE_THRESHOLD = 60;
+
 	/**
 	 * @param int  $timeout   Socket timeout in seconds
 	 * @param bool $verifySsl Verify SSL peer certificate (disable for self-signed)
@@ -109,6 +115,7 @@ class SocketImapClient implements ImapClientInterface
 		}
 
 		$this->authenticated = true;
+		$this->lastActivity = microtime(true);
 	}
 
 	public function authenticateXOAuth2(string $username, string $accessToken): void
@@ -141,6 +148,7 @@ class SocketImapClient implements ImapClientInterface
 		}
 
 		$this->authenticated = true;
+		$this->lastActivity = microtime(true);
 	}
 
 	public function listMailboxes(string $reference = '', string $pattern = '*'): array
@@ -435,7 +443,11 @@ class SocketImapClient implements ImapClientInterface
 
 		try {
 			$response = $this->command('NOOP');
-			return $response['status'] === 'OK';
+			if ($response['status'] === 'OK') {
+				$this->lastActivity = microtime(true);
+				return true;
+			}
+			return false;
 		} catch (\Throwable $e) {
 			return false;
 		}
@@ -452,7 +464,17 @@ class SocketImapClient implements ImapClientInterface
 			return false;
 		}
 
-		return !feof($this->socket);
+		if (feof($this->socket)) {
+			return false;
+		}
+
+		// After an idle period, probe with NOOP to detect stale connections
+		// that feof() cannot see (peer dropped without us reading).
+		if ($this->lastActivity > 0 && (microtime(true) - $this->lastActivity) > self::IDLE_PROBE_THRESHOLD) {
+			return $this->noop();
+		}
+
+		return true;
 	}
 
 	// ────────────────────────────────────────────────────────────
@@ -511,6 +533,7 @@ class SocketImapClient implements ImapClientInterface
 
 			// Tagged response — command complete
 			if (str_starts_with($line, "{$tag} ")) {
+				$this->lastActivity = microtime(true);
 				$parts = explode(' ', $line, 3);
 				return [
 					'status' => $parts[1] ?? 'NO',

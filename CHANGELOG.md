@@ -4,6 +4,13 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-08-02
+
+### Fixed
+- `mail_search` multi-mailbox path now slices UIDs to `limit` per mailbox before fetching headers, matching the single-mailbox path (#18)
+- `mail_search` multi-mailbox loop now fails fast on connection-level errors (connection lost, timeout) instead of stalling through all remaining mailboxes (#17)
+- Stale IMAP connections detected via NOOP probe after 60 seconds of inactivity, triggering auto-reconnect instead of silently using a dead socket (#17)
+
 ## [1.1.5] - 2026-08-01
 
 ### Added

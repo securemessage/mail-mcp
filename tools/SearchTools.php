@@ -184,12 +184,23 @@ class SearchTools
 
 				if (!empty($uids)) {
 					$searchedMailboxes[] = $mb->name;
-					// Fetch headers for this mailbox's results
+					// Slice to newest $limit UIDs before fetching headers,
+					// mirroring the single-mailbox path (#18)
+					if (count($uids) > $limit) {
+						$uids = array_slice($uids, -$limit);
+					}
 					$messages = $client->fetchHeaders($uids);
 					$allMessages = array_merge($allMessages, $messages);
 				}
-			} catch (\Throwable $e) {
-				// Skip mailboxes that fail (e.g., permission issues)
+			} catch (\RuntimeException $e) {
+				// Connection-level failures: fail fast instead of stalling
+				// through remaining mailboxes (#17)
+				if (str_contains($e->getMessage(), 'connection lost')
+					|| str_contains($e->getMessage(), 'timed out')
+					|| str_contains($e->getMessage(), 'Failed to write')) {
+					throw $e;
+				}
+				// Per-mailbox failures (e.g., permission issues): skip
 				continue;
 			}
 		}
