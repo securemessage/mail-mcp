@@ -4,6 +4,8 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-08-01
+
 ### Added
 - `from` key in instance configuration — explicit RFC 5322 From address (with optional display name) separate from the SMTP/IMAP auth username (#16)
 
