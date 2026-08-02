@@ -57,7 +57,7 @@ class SendTools
 		$smtp = $this->manager->getSmtpClient($name);
 
 		$builder = new MessageBuilder();
-		$builder->setFrom($config['username']);
+		$builder->setFrom($this->resolveFrom($config));
 		$builder->setSubject($subject);
 
 		foreach ($this->parseAddresses($to) as $addr) {
@@ -167,7 +167,7 @@ class SendTools
 		$original = $imap->fetchMessage($uid, false);
 
 		$builder = new MessageBuilder();
-		$builder->setFrom($config['username']);
+		$builder->setFrom($this->resolveFrom($config));
 
 		// Set reply subject
 		$subject = $original->subject;
@@ -204,7 +204,12 @@ class SendTools
 			}
 		}
 
-		$myAddress = strtolower($config['username']);
+		$resolvedFrom = $this->resolveFrom($config);
+		// Extract bare addr-spec for self-exclusion comparison
+		$myAddress = strtolower($resolvedFrom);
+		if (preg_match('/<([^>]+)>/', $myAddress, $fm)) {
+			$myAddress = strtolower($fm[1]);
+		}
 
 		if ($reply_all) {
 			foreach ($this->parseAddresses($original->to) as $addr) {
@@ -428,6 +433,20 @@ class SendTools
 			return '> ' . $line;
 		}, $lines);
 		return implode("\n", $quoted);
+	}
+
+	/**
+	 * Resolve the From address from instance config.
+	 *
+	 * Prefers the explicit 'from' key (which may include a display name).
+	 * Falls back to 'username' only if it contains an @.
+	 */
+	private function resolveFrom(array $config): string
+	{
+		if (!empty($config['from'])) {
+			return $config['from'];
+		}
+		return $config['username'];
 	}
 
 	/**

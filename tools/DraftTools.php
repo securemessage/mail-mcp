@@ -66,7 +66,7 @@ class DraftTools
 		}
 
 		$builder = new MessageBuilder();
-		$builder->setFrom($config['username']);
+		$builder->setFrom($this->resolveFrom($config));
 		$builder->setSubject($subject);
 
 		foreach ($this->parseAddresses($to) as $addr) {
@@ -192,6 +192,20 @@ class DraftTools
 		}
 
 		return null;
+	}
+
+	/**
+	 * Resolve the From address from instance config.
+	 *
+	 * Prefers the explicit 'from' key (which may include a display name).
+	 * Falls back to 'username' only if it contains an @.
+	 */
+	private function resolveFrom(array $config): string
+	{
+		if (!empty($config['from'])) {
+			return $config['from'];
+		}
+		return $config['username'];
 	}
 
 	/**

@@ -147,4 +147,40 @@ class MessageBuilderTest extends TestCase
 
 		$this->assertMatchesRegularExpression('/Date: .+\d{4}/', $raw);
 	}
+
+	public function testSetFromRejectsBareLogin(): void
+	{
+		$builder = new MessageBuilder();
+
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessageMatches('/must contain a valid email/');
+
+		$builder->setFrom('justin');
+	}
+
+	public function testSetFromAcceptsDisplayNameFormat(): void
+	{
+		$builder = new MessageBuilder();
+		$builder->setFrom('Justin Smith <justin@example.com>')
+			->addTo('recipient@example.com')
+			->setSubject('Test')
+			->setTextBody('body');
+
+		$raw = $builder->build();
+
+		$this->assertStringContainsString('From: Justin Smith <justin@example.com>', $raw);
+	}
+
+	public function testSetFromAcceptsPlainEmail(): void
+	{
+		$builder = new MessageBuilder();
+		$builder->setFrom('user@example.com')
+			->addTo('recipient@example.com')
+			->setSubject('Test')
+			->setTextBody('body');
+
+		$raw = $builder->build();
+
+		$this->assertStringContainsString('From: user@example.com', $raw);
+	}
 }

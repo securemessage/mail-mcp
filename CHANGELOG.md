@@ -4,6 +4,13 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+### Added
+- `from` key in instance configuration — explicit RFC 5322 From address (with optional display name) separate from the SMTP/IMAP auth username (#16)
+
+### Fixed
+- `mail_send`, `mail_reply`, `mail_create_draft` no longer emit an invalid `From:` header when the login username is not an email address (#16)
+- `MessageBuilder::setFrom()` now validates that the value contains an addr-spec (has `@`), failing loudly at build time instead of silently producing an RFC 5322-invalid message (#16)
+
 ## [1.1.4] - 2026-07-30
 
 ### Added

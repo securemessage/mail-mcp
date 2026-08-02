@@ -132,6 +132,7 @@ If your mail server uses a self-signed certificate:
         "imap_port": 993,
         "username": "user",
         "password": "pass",
+        "from": "user@internal.com",
         "tls": true,
         "verify_ssl": false
     }
@@ -163,8 +164,9 @@ Switch accounts at runtime with `mail_switch_instance` or pass `instance` to any
 | `imap_port` | int | no | 993 | IMAP port |
 | `smtp_host` | string | no | — | SMTP server hostname |
 | `smtp_port` | int | no | 465 | SMTP port |
-| `username` | string | yes | — | Login username (usually email) |
+| `username` | string | yes | — | Login username for IMAP/SMTP authentication |
 | `password` | string | yes* | — | Password or app password (*not needed for OAuth) |
+| `from` | string | no | `username` | RFC 5322 From address, e.g. `"Name <user@domain>"`. Required when username is not an email |
 | `auth_type` | string | no | `plain` | `plain` or `xoauth2` |
 | `tls` | bool | no | `true` | Use implicit TLS (port 993/465) |
 | `starttls` | bool | no | `true` | Upgrade plaintext via STARTTLS |
@@ -255,7 +257,7 @@ Add to your Claude MCP configuration:
 
 - Gmail: generate an [App Password](https://myaccount.google.com/apppasswords) (requires 2FA enabled)
 - Outlook: generate an app password or use OAuth
-- Check that `username` is the full email address
+- Check that `username` is the full email address, or add a `from` key if your login is a bare username
 
 ### Self-signed certificate errors
 

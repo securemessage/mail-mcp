@@ -28,6 +28,18 @@ class MessageBuilder
 
 	public function setFrom(string $from): self
 	{
+		// Validate that the From value contains an addr-spec (RFC 5322 §3.6.2).
+		// Accepts "user@domain" or "Display Name <user@domain>".
+		$addrSpec = $from;
+		if (preg_match('/<([^>]+)>/', $from, $m)) {
+			$addrSpec = $m[1];
+		}
+		if (strpos($addrSpec, '@') === false) {
+			throw new \InvalidArgumentException(
+				"From address must contain a valid email (addr-spec with @). Got: \"{$from}\". "
+				. "Add a 'from' key to your instance configuration with a valid email address."
+			);
+		}
 		$this->from = $from;
 		return $this;
 	}
