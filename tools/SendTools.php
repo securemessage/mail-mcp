@@ -101,8 +101,9 @@ class SendTools
 
 		$rawMessage = $builder->build();
 		$recipients = $builder->getAllRecipients();
+		$envelopeSender = $this->extractAddrSpec($this->resolveFrom($config));
 
-		$smtp->send($config['username'], $recipients, $rawMessage);
+		$smtp->send($envelopeSender, $recipients, $rawMessage);
 
 		$result = [
 			'instance' => $instance ?: $this->manager->getDefault(),
@@ -283,7 +284,8 @@ class SendTools
 				'recipients' => count($recipients),
 			];
 		} else {
-			$smtp->send($config['username'], $recipients, $rawMessage);
+			$envelopeSender = $this->extractAddrSpec($this->resolveFrom($config));
+			$smtp->send($envelopeSender, $recipients, $rawMessage);
 
 			$result = [
 				'instance' => $instance ?: $this->manager->getDefault(),
@@ -447,6 +449,20 @@ class SendTools
 			return $config['from'];
 		}
 		return $config['username'];
+	}
+
+	/**
+	 * Extract the bare addr-spec from a From value.
+	 *
+	 * "Display Name <user@domain>" → "user@domain"
+	 * "user@domain" → "user@domain"
+	 */
+	private function extractAddrSpec(string $from): string
+	{
+		if (preg_match('/<([^>]+)>/', $from, $m)) {
+			return $m[1];
+		}
+		return $from;
 	}
 
 	/**
