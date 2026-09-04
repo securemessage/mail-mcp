@@ -10,6 +10,7 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 - `force` parameter on `mail_send` — override the missing-attachment block (#19)
 
 ### Changed
+- **Breaking:** `mail_reply` defaults changed to reply-to-all and draft-first — `reply_all` now defaults to `true` (was `false`) and `draft` now defaults to `true` (was `false`). Replies are no longer sent immediately unless `draft: false` is passed explicitly (#20)
 - File attachment handling in `mail_send` and `mail_create_draft` refactored into the shared `Mail\AttachmentHelper` class
 
 ## [1.1.6] - 2026-08-02

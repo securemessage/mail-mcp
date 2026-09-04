@@ -137,17 +137,17 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_reply',
-		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default includes the quoted original message body below the reply text. Supports file attachments via absolute paths. Warns if the reply body mentions an attachment but none were included.',
+		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default replies to all original recipients, includes the quoted original message body below the reply text, and saves the reply as a draft for review (set draft: false to send immediately). Supports file attachments via absolute paths. Warns if the reply body mentions an attachment but none were included.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'uid' => ['type' => 'integer', 'description' => 'UID of the message to reply to'],
 				'text' => ['type' => 'string', 'description' => 'Reply text body'],
 				'html' => ['type' => 'string', 'description' => 'Reply HTML body (optional)'],
-				'reply_all' => ['type' => 'boolean', 'description' => 'Reply to all recipients (default: false)'],
+				'reply_all' => ['type' => 'boolean', 'description' => 'Reply to all recipients (default: true)'],
 				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional, overrides original CC list)'],
 				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
-				'draft' => ['type' => 'boolean', 'description' => 'Save as draft instead of sending (default: false)'],
+				'draft' => ['type' => 'boolean', 'description' => 'Save as draft instead of sending (default: true)'],
 				'include_original' => ['type' => 'boolean', 'description' => 'Include quoted original message in reply (default: true)'],
 				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
@@ -159,10 +159,10 @@ class SendTools
 		int $uid,
 		string $text,
 		string $html = '',
-		bool $reply_all = false,
+		bool $reply_all = true,
 		string $cc = '',
 		string $bcc = '',
-		bool $draft = false,
+		bool $draft = true,
 		bool $include_original = true,
 		array $attachments = [],
 		string $instance = ''
@@ -336,7 +336,7 @@ class SendTools
 		if (!empty($excludedCc)) {
 			$result['excluded_cc'] = $excludedCc;
 			$result['note'] = sprintf(
-				'%d CC recipient(s) from original message not included: %s. Use reply_all: true or cc parameter to include them.',
+				'%d CC recipient(s) from original message not included: %s. Use the cc parameter to include them.',
 				count($excludedCc),
 				implode(', ', $excludedCc)
 			);

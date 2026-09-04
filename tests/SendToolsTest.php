@@ -244,8 +244,16 @@ class SendToolsTest extends TestCase
 		$this->assertTrue($params['bcc']->isDefaultValueAvailable());
 		$this->assertEquals('', $params['bcc']->getDefaultValue());
 
+		// Safe defaults for AI-agent consumers (#20): reply to all,
+		// include the original, and create a draft for review.
+		$this->assertTrue($params['reply_all']->isDefaultValueAvailable());
+		$this->assertTrue($params['reply_all']->getDefaultValue());
+
 		$this->assertTrue($params['draft']->isDefaultValueAvailable());
-		$this->assertFalse($params['draft']->getDefaultValue());
+		$this->assertTrue($params['draft']->getDefaultValue());
+
+		$this->assertTrue($params['include_original']->isDefaultValueAvailable());
+		$this->assertTrue($params['include_original']->getDefaultValue());
 	}
 
 	public function testMailReplySchemaIncludesNewProperties(): void
