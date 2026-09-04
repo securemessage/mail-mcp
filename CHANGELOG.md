@@ -11,6 +11,8 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 - `mail_update_draft` — modify an existing draft (recipients, subject, body, attachments) without losing threading headers or quoted history. Replaces the draft in place via APPEND + delete since IMAP does not support editing messages (#22)
 
 ### Changed
+- Re-vendored Enchilada MCP library from Extras master: MCP protocol version negotiation (echoes a supported client version; now supports 2025-06-18), unknown-tool calls now return tool-level error results with closest-name suggestions instead of protocol errors, `outputSchema`/`renamedFrom` tool metadata, structured content results, and `ToolWarningInterface` for uncertain outcomes
+- Re-vendored `EnchiladaHTTP`: multipart form format support and `getLastCurlErrno()`/`getLastCurlError()` accessors
 - **Breaking:** `mail_reply` defaults changed to reply-to-all and draft-first — `reply_all` now defaults to `true` (was `false`) and `draft` now defaults to `true` (was `false`). Replies are no longer sent immediately unless `draft: false` is passed explicitly (#20)
 - File attachment handling in `mail_send` and `mail_create_draft` refactored into the shared `Mail\AttachmentHelper` class
 

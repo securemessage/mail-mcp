@@ -31,6 +31,14 @@ class ToolRegistry
 	private array $handlers = [];
 
 	/**
+	 * Rename history: former tool name => current tool name.
+	 * Metadata only (not callable); feeds unknown-tool suggestions.
+	 *
+	 * @var array<string,string>
+	 */
+	private array $renamedFrom = [];
+
+	/**
 	 * Registered resource templates indexed by URI template.
 	 *
 	 * @var array<string,array{uriTemplate:string,name:string,description:string,mimeType:string}>
@@ -92,6 +100,12 @@ class ToolRegistry
 				'inputSchema' => $inputSchema,
 			];
 
+			// Advertised only when the tool declares one, so tools returning
+			// plain text keep a byte-identical definition.
+			if ($attr->outputSchema !== null) {
+				$tool['outputSchema'] = $attr->outputSchema;
+			}
+
 			$annotations = array_filter([
 				'readOnlyHint' => $attr->readOnlyHint,
 				'destructiveHint' => $attr->destructiveHint,
@@ -106,6 +120,10 @@ class ToolRegistry
 			$this->tools[$toolName] = $tool;
 
 			$this->handlers[$toolName] = [$handler, $method->getName()];
+
+			if ($attr->renamedFrom !== null) {
+				$this->renamedFrom[$attr->renamedFrom] = $toolName;
+			}
 		}
 	}
 
@@ -207,6 +225,55 @@ class ToolRegistry
 	public function hasTool(string $name): bool
 	{
 		return isset($this->handlers[$name]);
+	}
+
+	/**
+	 * Suggest registered tool names closest to the given (unknown) name.
+	 *
+	 * Intended for "unknown tool" diagnostics: LLM clients occasionally
+	 * hallucinate tool names (e.g. inventing a vendor prefix), and a
+	 * suggestion list lets the caller self-correct on the next attempt.
+	 *
+	 * @param  string   $name Unknown tool name
+	 * @param  int      $max  Maximum suggestions (default 3)
+	 * @return string[]       Closest tool names, nearest first
+	 */
+	public function suggestTools(string $name, int $max = 3): array
+	{
+		// Exact rename history first: a caller using a pre-rename name should
+		// always see the current name as the top suggestion.
+		$known = [];
+		if (isset($this->renamedFrom[$name])) {
+			$known[] = $this->renamedFrom[$name];
+		}
+
+		$queryTokens = explode('_', strtolower($name));
+
+		$scored = [];
+		foreach (array_keys($this->handlers) as $candidate) {
+			$overlap = 0;
+			foreach (explode('_', strtolower($candidate)) as $candidateToken) {
+				foreach ($queryTokens as $queryToken) {
+					// Exact match, or prefix match for tokens long enough to be
+					// meaningful (catches singular/plural: repo ~ repos)
+					if (
+						$candidateToken === $queryToken
+						|| (strlen($queryToken) >= 4 && strlen($candidateToken) >= 4
+							&& (str_starts_with($candidateToken, $queryToken) || str_starts_with($queryToken, $candidateToken)))
+					) {
+						$overlap++;
+						break;
+					}
+				}
+			}
+			// Rank by token overlap (handles hallucinated vendor prefixes and
+			// word-order swaps), then by edit distance as tiebreak
+			$scored[$candidate] = [-$overlap, levenshtein(strtolower($name), strtolower($candidate))];
+		}
+
+		uasort($scored, fn($a, $b) => $a <=> $b);
+		$ranked = array_keys($scored);
+		return array_slice(array_values(array_unique(array_merge($known, $ranked))), 0, $max);
 	}
 
 	/**

@@ -175,7 +175,7 @@ class StdioTransport
 			$msg['params'] = $params;
 		}
 		$output = json_encode($msg, JSON_UNESCAPED_SLASHES);
-		$this->log("Notification: " . substr($output, 0, 200));
+		$this->log("Notification (" . Logger::digest($output) . "): " . Logger::truncate($output));
 		if (@fwrite(STDOUT, $output . "\n") === false) {
 			$this->log("stdout write failed (pipe broken?), stopping");
 			$this->running = false;
@@ -225,11 +225,11 @@ class StdioTransport
 	 */
 	private function handleLine(string $line): void
 	{
-		$this->log("Received: " . substr($line, 0, 200) . (strlen($line) > 200 ? '...' : ''));
+		$this->log("Received (" . Logger::digest($line) . "): " . Logger::truncate($line));
 
 		$request = json_decode($line, true);
 		if ($request === null) {
-			$this->log("Invalid JSON received");
+			$this->log("Invalid JSON received (" . json_last_error_msg() . ", " . Logger::digest($line) . ")");
 			return;
 		}
 
@@ -259,7 +259,7 @@ class StdioTransport
 				$this->log("Failed to encode response: " . json_last_error_msg());
 				return;
 			}
-			$this->log("Sending: " . substr($output, 0, 200) . (strlen($output) > 200 ? '...' : ''));
+			$this->log("Sending (" . Logger::digest($output) . "): " . Logger::truncate($output));
 			if (@fwrite(STDOUT, $output . "\n") === false) {
 				$this->log("stdout write failed (pipe broken?), stopping");
 				$this->running = false;

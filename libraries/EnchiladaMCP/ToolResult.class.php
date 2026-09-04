@@ -49,6 +49,9 @@ class ToolResult
 	/** @var bool Whether this result represents an error */
 	private bool $isError;
 
+	/** @var array<string,mixed>|null Structured tool output (MCP 2025-06-18) */
+	private ?array $structuredContent = null;
+
 	/**
 	 * @param array<int, array<string, mixed>> $content MCP content blocks
 	 * @param bool $isError Whether this is an error result
@@ -91,6 +94,37 @@ class ToolResult
 	}
 
 	/**
+	 * Create a text result that also carries a structured form of itself.
+	 *
+	 * Per the MCP specification a server returning `structuredContent` MUST
+	 * also return backwards-compatible `content`, so the text rendering is a
+	 * required argument rather than an optional one. Clients that predate
+	 * structured output -- or that feed tool results straight to a model --
+	 * keep working unchanged and never see the extra field.
+	 *
+	 * @param string              $text Human/LLM-readable rendering
+	 * @param array<string,mixed> $data Structured form of the same result
+	 */
+	public static function structured(string $text, array $data): self
+	{
+		$result = new self([['type' => 'text', 'text' => $text]]);
+		$result->structuredContent = $data;
+		return $result;
+	}
+
+	/**
+	 * Attach structured output to an existing result.
+	 *
+	 * @param  array<string,mixed> $data Structured form of this result
+	 * @return self                      Fluent interface
+	 */
+	public function withStructuredContent(array $data): self
+	{
+		$this->structuredContent = $data;
+		return $this;
+	}
+
+	/**
 	 * Create a result with multiple content blocks (mixed types).
 	 *
 	 * @param array<int, array<string, mixed>> $contentBlocks Array of content blocks
@@ -110,6 +144,10 @@ class ToolResult
 	{
 		$result = ['content' => $this->content];
 
+		if ($this->structuredContent !== null) {
+			$result['structuredContent'] = $this->structuredContent;
+		}
+
 		if ($this->isError) {
 			$result['isError'] = true;
 		}
@@ -125,6 +163,16 @@ class ToolResult
 	public function getContent(): array
 	{
 		return $this->content;
+	}
+
+	/**
+	 * Get the structured output, or null if this result carries none.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	public function getStructuredContent(): ?array
+	{
+		return $this->structuredContent;
 	}
 
 	/**
