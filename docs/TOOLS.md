@@ -183,6 +183,24 @@ Create a draft email for review before sending. Saved to Drafts folder.
 
 If the body mentions an attachment but `attachments` is empty, the response includes a `warning` field (never blocks).
 
+### mail_update_draft
+Modify an existing draft in the Drafts folder. Only provided fields are replaced; omitted fields are preserved, including threading headers (In-Reply-To/References) and existing attachments. IMAP cannot edit messages in place, so the draft is replaced: a new message is appended and the original is deleted.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `uid` | integer | yes | — | UID of the draft message to update |
+| `to` | string | no | — | Recipients, comma-separated (replaces existing To) |
+| `subject` | string | no | — | Subject (replaces existing) |
+| `text` | string | no | — | Plain text body (replaces existing) |
+| `html` | string | no | — | HTML body (replaces existing) |
+| `cc` | string | no | — | CC recipients (replaces existing) |
+| `bcc` | string | no | — | BCC recipients (replaces existing) |
+| `attachments` | string[] | no | — | Replaces ALL existing attachments |
+| `add_attachments` | string[] | no | — | Appends attachments without replacing existing ones |
+| `instance` | string | no | default | Mail account name |
+
+If the resulting draft mentions an attachment but has none, the response includes a `warning` field (never blocks).
+
 ## Organization
 
 ### mail_mark_read

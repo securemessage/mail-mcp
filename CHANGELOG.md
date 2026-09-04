@@ -8,6 +8,7 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 - `attachments` parameter on `mail_reply` — attach files to replies, consistent with `mail_send` and `mail_create_draft` (#19)
 - Missing-attachment heuristic (#19): if the body contains an attachment phrase ("see attached", "please find attached", etc.) but no files are attached, `mail_send` refuses to send unless `force: true` is passed; `mail_create_draft` and `mail_reply` include a `warning` field in the response without blocking
 - `force` parameter on `mail_send` — override the missing-attachment block (#19)
+- `mail_update_draft` — modify an existing draft (recipients, subject, body, attachments) without losing threading headers or quoted history. Replaces the draft in place via APPEND + delete since IMAP does not support editing messages (#22)
 
 ### Changed
 - **Breaking:** `mail_reply` defaults changed to reply-to-all and draft-first — `reply_all` now defaults to `true` (was `false`) and `draft` now defaults to `true` (was `false`). Replies are no longer sent immediately unless `draft: false` is passed explicitly (#20)

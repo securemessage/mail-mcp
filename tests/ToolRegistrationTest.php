@@ -66,6 +66,7 @@ class ToolRegistrationTest extends TestCase
 			'mail_list_instances',
 			'mail_switch_instance',
 			'mail_create_draft',
+		'mail_update_draft',
 			'mail_move_message',
 			'mail_set_flags',
 			'mail_create_mailbox',

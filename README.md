@@ -131,6 +131,7 @@ To use a config file in a non-default location:
 | `mail_send` | Send a new email (with file attachments) |
 | `mail_reply` | Reply with quoted original message |
 | `mail_create_draft` | Save a draft for review before sending |
+| `mail_update_draft` | Modify an existing draft (recipients, subject, body, attachments) |
 | `mail_mark_read` | Mark message(s) as read |
 | `mail_mark_unread` | Mark message(s) as unread |
 | `mail_set_flags` | Add/remove IMAP flags and keywords |

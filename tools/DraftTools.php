@@ -10,6 +10,7 @@
 
 use EnchiladaMCP\McpTool;
 use Mail\AttachmentHelper;
+use Mail\HeaderBlock;
 use Mail\InstanceManager;
 use Mail\MessageBuilder;
 
@@ -164,6 +165,172 @@ class DraftTools
 			'drafts_folder' => $draftsFolder,
 			'to' => $to,
 			'subject' => $subject,
+		];
+
+		if (!empty($attachedFiles)) {
+			$result['attachments'] = $attachedFiles;
+		}
+		if ($attachmentWarning !== null) {
+			$result['warning'] = $attachmentWarning;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Update an existing draft message.
+	 */
+	#[McpTool(
+		name: 'mail_update_draft',
+		description: 'Modify an existing draft in the Drafts folder. Only provided fields replace the draft\'s current values; omitted fields are preserved (including threading headers and existing attachments, unless attachments is given). Warns if the resulting draft mentions an attachment but has none.',
+		inputSchema: [
+			'type' => 'object',
+			'properties' => [
+				'uid' => ['type' => 'integer', 'description' => 'UID of the draft message to update'],
+				'to' => ['type' => 'string', 'description' => 'Recipient email address(es), comma-separated (optional, replaces existing To)'],
+				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional, replaces existing CC)'],
+				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional, replaces existing BCC)'],
+				'subject' => ['type' => 'string', 'description' => 'Email subject (optional, replaces existing subject)'],
+				'text' => ['type' => 'string', 'description' => 'Plain text body (optional, replaces existing text body)'],
+				'html' => ['type' => 'string', 'description' => 'HTML body (optional, replaces existing HTML body)'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional, replaces ALL existing attachments)'],
+				'add_attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to append without replacing existing attachments (optional)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+			],
+			'required' => ['uid'],
+		]
+	)]
+	public function mail_update_draft(
+		int $uid,
+		string $to = '',
+		string $cc = '',
+		string $bcc = '',
+		string $subject = '',
+		string $text = '',
+		string $html = '',
+		array $attachments = [],
+		array $add_attachments = [],
+		string $instance = ''
+	): array {
+		$name = $instance ?: null;
+		$config = $this->manager->getConfig($name);
+		$imap = $this->manager->getImapClient($name);
+
+		if (!$imap->isConnected()) {
+			return ['error' => 'IMAP not connected. Use mail_connect first.'];
+		}
+
+		$draftsFolder = $this->findDraftsMailbox($imap);
+		if ($draftsFolder === null) {
+			return ['error' => 'Could not find Drafts folder on the mail server'];
+		}
+
+		// UIDs are per-mailbox; make sure we are looking at Drafts
+		if ($imap->getCurrentMailbox() !== $draftsFolder) {
+			$imap->selectMailbox($draftsFolder, false);
+		}
+
+		try {
+			$original = $imap->fetchMessage($uid, false);
+		} catch (\Throwable $e) {
+			return ['error' => "Draft not found (UID {$uid} in {$draftsFolder}): " . $e->getMessage()];
+		}
+
+		$builder = new MessageBuilder();
+		$builder->setFrom($this->resolveFrom($config));
+
+		// Subject and recipients: replace only when provided
+		$finalSubject = $subject !== '' ? $subject : $original->subject;
+		$builder->setSubject($finalSubject);
+
+		foreach ($this->parseAddresses($to !== '' ? $to : $original->to) as $addr) {
+			$builder->addTo($addr);
+		}
+		foreach ($this->parseAddresses($cc !== '' ? $cc : $original->cc) as $addr) {
+			$builder->addCc($addr);
+		}
+		foreach ($this->parseAddresses($bcc !== '' ? $bcc : $original->bcc) as $addr) {
+			$builder->addBcc($addr);
+		}
+
+		// Preserve threading headers — Message does not carry them, so
+		// read the raw header block and copy In-Reply-To/References over
+		try {
+			$threading = HeaderBlock::select(
+				$imap->fetchRawHeaders($uid),
+				['in-reply-to', 'references']
+			);
+			foreach ($threading as $field) {
+				$value = trim(preg_replace('/\r?\n[ \t]+/', ' ', substr($field, strpos($field, ':') + 1)));
+				if (HeaderBlock::nameOf($field) === 'in-reply-to') {
+					$builder->setInReplyTo($value);
+				} else {
+					$builder->setReferences($value);
+				}
+			}
+		} catch (\Throwable $e) {
+			// Non-fatal — continue without threading headers
+		}
+
+		// Body: replace only when provided
+		$finalText = $text !== '' ? $text : $original->textBody;
+		$finalHtml = $html !== '' ? $html : $original->htmlBody;
+
+		if ($finalText !== null) {
+			$builder->setTextBody($finalText);
+		}
+		if ($finalHtml !== null) {
+			$builder->setHtmlBody($finalHtml);
+		}
+		if ($finalText === null && $finalHtml === null) {
+			$builder->setTextBody('');
+		}
+
+		// Attachments: replace-all when given, preserve otherwise,
+		// then append add_attachments in both cases
+		try {
+			if (!empty($attachments)) {
+				$attachedFiles = AttachmentHelper::attachFiles($builder, $attachments);
+			} else {
+				$attachedFiles = [];
+				foreach ($original->attachments as $att) {
+					$builder->addAttachment($att->filename, $imap->fetchAttachment($uid, $att->partNumber), $att->contentType);
+					$attachedFiles[] = $att->filename;
+				}
+			}
+			if (!empty($add_attachments)) {
+				$attachedFiles = array_merge($attachedFiles, AttachmentHelper::attachFiles($builder, $add_attachments));
+			}
+		} catch (\RuntimeException $e) {
+			return ['error' => $e->getMessage()];
+		}
+
+		// Missing-attachment heuristic on the final composition (#19)
+		$attachmentWarning = null;
+		if (empty($attachedFiles)) {
+			$mention = AttachmentHelper::findMention($finalText ?? '', $finalHtml ?? '');
+			if ($mention !== null) {
+				$attachmentWarning = sprintf(
+					'Message body mentions an attachment ("%s") but no files are attached to the updated draft.',
+					$mention
+				);
+			}
+		}
+
+		// IMAP cannot edit messages in place: APPEND the new version,
+		// then flag + expunge the old one (same pattern as Thunderbird)
+		$rawMessage = $builder->build();
+		$imap->appendMessage($draftsFolder, $rawMessage, ['\\Draft', '\\Seen']);
+		$imap->deleteMessage($uid);
+
+		$result = [
+			'instance' => $instance ?: $this->manager->getDefault(),
+			'draft_updated' => true,
+			'drafts_folder' => $draftsFolder,
+			'uid' => $uid,
+			'note' => 'The original draft was replaced; the updated draft has a new UID in the Drafts folder.',
+			'subject' => $finalSubject,
+			'recipients' => count($builder->getAllRecipients()),
 		];
 
 		if (!empty($attachedFiles)) {
