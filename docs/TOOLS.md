@@ -143,7 +143,10 @@ Send a new email via SMTP. Supports file attachments. Saves to Sent folder autom
 | `cc` | string | no | — | CC recipients |
 | `bcc` | string | no | — | BCC recipients |
 | `attachments` | string[] | no | — | Absolute file paths to attach |
+| `force` | boolean | no | false | Send even if the body mentions an attachment but none were included |
 | `instance` | string | no | default | Mail account name |
+
+If the body contains an attachment phrase (e.g. "see attached") but `attachments` is empty, `mail_send` refuses to send unless `force` is true.
 
 ### mail_reply
 Reply to an existing email. Sets In-Reply-To/References headers and Re: subject prefix. Includes quoted original by default.
@@ -154,8 +157,14 @@ Reply to an existing email. Sets In-Reply-To/References headers and Re: subject 
 | `text` | string | yes | — | Reply text body |
 | `html` | string | no | — | Reply HTML body |
 | `reply_all` | boolean | no | false | Reply to all recipients |
+| `cc` | string | no | — | CC recipients (overrides original CC list) |
+| `bcc` | string | no | — | BCC recipients |
+| `draft` | boolean | no | false | Save as draft instead of sending |
 | `include_original` | boolean | no | true | Include quoted original message |
+| `attachments` | string[] | no | — | Absolute file paths to attach |
 | `instance` | string | no | default | Mail account name |
+
+If the reply body mentions an attachment but `attachments` is empty, the response includes a `warning` field (never blocks).
 
 ### mail_create_draft
 Create a draft email for review before sending. Saved to Drafts folder.
@@ -171,6 +180,8 @@ Create a draft email for review before sending. Saved to Drafts folder.
 | `in_reply_to` | integer | no | — | UID of message this replies to |
 | `attachments` | string[] | no | — | Absolute file paths to attach |
 | `instance` | string | no | default | Mail account name |
+
+If the body mentions an attachment but `attachments` is empty, the response includes a `warning` field (never blocks).
 
 ## Organization
 

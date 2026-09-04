@@ -9,6 +9,7 @@
  */
 
 use EnchiladaMCP\McpTool;
+use Mail\AttachmentHelper;
 use Mail\InstanceManager;
 use Mail\MessageBuilder;
 
@@ -26,7 +27,7 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_send',
-		description: 'Send a new email via SMTP. Requires an active SMTP connection. Provide at least text or html body. Supports file attachments via absolute paths.',
+		description: 'Send a new email via SMTP. Requires an active SMTP connection. Provide at least text or html body. Supports file attachments via absolute paths. Blocks sending if the body mentions an attachment but none were included (pass force: true to override).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -37,6 +38,7 @@ class SendTools
 				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional)'],
 				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
 				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
+				'force' => ['type' => 'boolean', 'description' => 'Send even if the body mentions an attachment but none were included (default: false)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 			],
 			'required' => ['to', 'subject'],
@@ -50,6 +52,7 @@ class SendTools
 		string $cc = '',
 		string $bcc = '',
 		array $attachments = [],
+		bool $force = false,
 		string $instance = ''
 	): array {
 		$name = $instance ?: null;
@@ -80,23 +83,26 @@ class SendTools
 			$builder->setTextBody('');
 		}
 
+		// Missing-attachment heuristic (#19): block the send unless forced
+		$attachmentWarning = null;
+		if (empty($attachments)) {
+			$mention = AttachmentHelper::findMention($text, $html);
+			if ($mention !== null) {
+				$attachmentWarning = sprintf(
+					'Message body mentions an attachment ("%s") but no files were included in the attachments parameter.',
+					$mention
+				);
+				if (!$force) {
+					return ['error' => $attachmentWarning . ' Pass force: true to send anyway.'];
+				}
+			}
+		}
+
 		// Attach files from disk
-		$attachedFiles = [];
-		foreach ($attachments as $filePath) {
-			if (!file_exists($filePath)) {
-				return ['error' => "Attachment file not found: {$filePath}"];
-			}
-			if (!is_readable($filePath)) {
-				return ['error' => "Attachment file not readable: {$filePath}"];
-			}
-			$content = file_get_contents($filePath);
-			if ($content === false) {
-				return ['error' => "Failed to read attachment: {$filePath}"];
-			}
-			$filename = basename($filePath);
-			$mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
-			$builder->addAttachment($filename, $content, $mimeType);
-			$attachedFiles[] = $filename;
+		try {
+			$attachedFiles = AttachmentHelper::attachFiles($builder, $attachments);
+		} catch (\RuntimeException $e) {
+			return ['error' => $e->getMessage()];
 		}
 
 		$rawMessage = $builder->build();
@@ -116,6 +122,9 @@ class SendTools
 		if (!empty($attachedFiles)) {
 			$result['attachments'] = $attachedFiles;
 		}
+		if ($attachmentWarning !== null) {
+			$result['warning'] = $attachmentWarning;
+		}
 
 		// Save to Sent folder (best-effort)
 		$result['saved_to_sent'] = $this->saveToSentFolder($name, $rawMessage);
@@ -128,7 +137,7 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_reply',
-		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default includes the quoted original message body below the reply text.',
+		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default includes the quoted original message body below the reply text. Supports file attachments via absolute paths. Warns if the reply body mentions an attachment but none were included.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -140,6 +149,7 @@ class SendTools
 				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
 				'draft' => ['type' => 'boolean', 'description' => 'Save as draft instead of sending (default: false)'],
 				'include_original' => ['type' => 'boolean', 'description' => 'Include quoted original message in reply (default: true)'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
 			],
 			'required' => ['uid', 'text'],
@@ -154,6 +164,7 @@ class SendTools
 		string $bcc = '',
 		bool $draft = false,
 		bool $include_original = true,
+		array $attachments = [],
 		string $instance = ''
 	): array {
 		$name = $instance ?: null;
@@ -265,6 +276,27 @@ class SendTools
 			$builder->setHtmlBody($replyHtml);
 		}
 
+		// Missing-attachment heuristic (#19): warn the agent, never block.
+		// Scan only the reply text, not the quoted original — the original
+		// may mention its own attachments.
+		$attachmentWarning = null;
+		if (empty($attachments)) {
+			$mention = AttachmentHelper::findMention($text, $html);
+			if ($mention !== null) {
+				$attachmentWarning = sprintf(
+					'Reply body mentions an attachment ("%s") but no files were included in the attachments parameter.',
+					$mention
+				);
+			}
+		}
+
+		// Attach files from disk
+		try {
+			$attachedFiles = AttachmentHelper::attachFiles($builder, $attachments);
+		} catch (\RuntimeException $e) {
+			return ['error' => $e->getMessage()];
+		}
+
 		$rawMessage = $builder->build();
 		$recipients = $builder->getAllRecipients();
 
@@ -308,6 +340,13 @@ class SendTools
 				count($excludedCc),
 				implode(', ', $excludedCc)
 			);
+		}
+
+		if (!empty($attachedFiles)) {
+			$result['attachments'] = $attachedFiles;
+		}
+		if ($attachmentWarning !== null) {
+			$result['warning'] = $attachmentWarning;
 		}
 
 		return $result;

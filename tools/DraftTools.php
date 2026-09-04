@@ -9,6 +9,7 @@
  */
 
 use EnchiladaMCP\McpTool;
+use Mail\AttachmentHelper;
 use Mail\InstanceManager;
 use Mail\MessageBuilder;
 
@@ -29,7 +30,7 @@ class DraftTools
 	 */
 	#[McpTool(
 		name: 'mail_create_draft',
-		description: 'Create a draft email that can be reviewed before sending. The draft is saved to the Drafts folder via IMAP and can be edited in any mail client. Supports text, HTML, CC/BCC, and file attachments.',
+		description: 'Create a draft email that can be reviewed before sending. The draft is saved to the Drafts folder via IMAP and can be edited in any mail client. Supports text, HTML, CC/BCC, and file attachments. Warns if the body mentions an attachment but none were included.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -79,6 +80,21 @@ class DraftTools
 			$builder->addBcc($addr);
 		}
 
+		// Missing-attachment heuristic (#19): warn, never block drafts.
+		// Runs before in_reply_to quoting so only the caller's own body
+		// is scanned — quoted content may mention the original
+		// message's own attachments.
+		$attachmentWarning = null;
+		if (empty($attachments)) {
+			$mention = AttachmentHelper::findMention($text, $html);
+			if ($mention !== null) {
+				$attachmentWarning = sprintf(
+					'Message body mentions an attachment ("%s") but no files were included in the attachments parameter.',
+					$mention
+				);
+			}
+		}
+
 		// If replying to a message, set threading headers and quote original
 		if ($in_reply_to > 0) {
 			try {
@@ -125,22 +141,10 @@ class DraftTools
 		}
 
 		// Attach files from disk
-		$attachedFiles = [];
-		foreach ($attachments as $filePath) {
-			if (!file_exists($filePath)) {
-				return ['error' => "Attachment file not found: {$filePath}"];
-			}
-			if (!is_readable($filePath)) {
-				return ['error' => "Attachment file not readable: {$filePath}"];
-			}
-			$content = file_get_contents($filePath);
-			if ($content === false) {
-				return ['error' => "Failed to read attachment: {$filePath}"];
-			}
-			$filename = basename($filePath);
-			$mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
-			$builder->addAttachment($filename, $content, $mimeType);
-			$attachedFiles[] = $filename;
+		try {
+			$attachedFiles = AttachmentHelper::attachFiles($builder, $attachments);
+		} catch (\RuntimeException $e) {
+			return ['error' => $e->getMessage()];
 		}
 
 		$rawMessage = $builder->build();
@@ -164,6 +168,9 @@ class DraftTools
 
 		if (!empty($attachedFiles)) {
 			$result['attachments'] = $attachedFiles;
+		}
+		if ($attachmentWarning !== null) {
+			$result['warning'] = $attachmentWarning;
 		}
 
 		return $result;

@@ -4,6 +4,14 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+### Added
+- `attachments` parameter on `mail_reply` — attach files to replies, consistent with `mail_send` and `mail_create_draft` (#19)
+- Missing-attachment heuristic (#19): if the body contains an attachment phrase ("see attached", "please find attached", etc.) but no files are attached, `mail_send` refuses to send unless `force: true` is passed; `mail_create_draft` and `mail_reply` include a `warning` field in the response without blocking
+- `force` parameter on `mail_send` — override the missing-attachment block (#19)
+
+### Changed
+- File attachment handling in `mail_send` and `mail_create_draft` refactored into the shared `Mail\AttachmentHelper` class
+
 ## [1.1.6] - 2026-08-02
 
 ### Fixed

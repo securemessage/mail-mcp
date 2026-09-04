@@ -180,6 +180,54 @@ class SendToolsTest extends TestCase
 		$this->assertContains('cc', $paramNames, 'mail_reply should accept cc parameter');
 		$this->assertContains('bcc', $paramNames, 'mail_reply should accept bcc parameter');
 		$this->assertContains('draft', $paramNames, 'mail_reply should accept draft parameter');
+		$this->assertContains('attachments', $paramNames, 'mail_reply should accept attachments parameter (#19)');
+	}
+
+	public function testMailReplyAttachmentsParameterHasDefault(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'mail_reply');
+		$params = [];
+		foreach ($method->getParameters() as $p) {
+			$params[$p->getName()] = $p;
+		}
+
+		$this->assertTrue($params['attachments']->isDefaultValueAvailable());
+		$this->assertEquals([], $params['attachments']->getDefaultValue());
+	}
+
+	public function testMailReplySchemaIncludesAttachments(): void
+	{
+		$attr = (new ReflectionMethod(SendTools::class, 'mail_reply'))
+			->getAttributes(McpTool::class)[0];
+		$args = $attr->getArguments();
+		$properties = $args['inputSchema']['properties'];
+
+		$this->assertArrayHasKey('attachments', $properties, 'Schema should include attachments property (#19)');
+		$this->assertEquals('array', $properties['attachments']['type']);
+	}
+
+	public function testMailSendAcceptsForceParameter(): void
+	{
+		$method = new ReflectionMethod(SendTools::class, 'mail_send');
+		$params = [];
+		foreach ($method->getParameters() as $p) {
+			$params[$p->getName()] = $p;
+		}
+
+		$this->assertArrayHasKey('force', $params, 'mail_send should accept force parameter (#19)');
+		$this->assertTrue($params['force']->isDefaultValueAvailable());
+		$this->assertFalse($params['force']->getDefaultValue());
+	}
+
+	public function testMailSendSchemaIncludesForce(): void
+	{
+		$attr = (new ReflectionMethod(SendTools::class, 'mail_send'))
+			->getAttributes(McpTool::class)[0];
+		$args = $attr->getArguments();
+		$properties = $args['inputSchema']['properties'];
+
+		$this->assertArrayHasKey('force', $properties, 'Schema should include force property (#19)');
+		$this->assertEquals('boolean', $properties['force']['type']);
 	}
 
 	public function testMailReplyNewParametersHaveDefaults(): void
