@@ -4,14 +4,18 @@
  * OAuth Callback Server
  *
  * Temporary HTTP listener for receiving OAuth 2.0 authorization callbacks.
- * Binds to a random available port on localhost, designed for integration
- * with an event loop (stream_select) or standalone blocking use.
+ * Binds to a random available port on localhost. Fully non-blocking:
+ * handleConnection() never blocks — accepted connections are buffered
+ * incrementally until a complete HTTP request arrives, so it is safe to
+ * call from inside a host event loop's read callback (Tortilla transports,
+ * Comal reactor, stream_select drivers) without starving the channel.
  *
  * Usage:
  *   $server = new OAuthCallbackServer('/callback', $state);
  *   echo "Authorize at: " . $authUrl . "&redirect_uri=" . $server->getCallbackUrl();
- *   // In event loop: stream_select on $server->getSocket()
+ *   // In event loop: watch $server->getWatchSockets()
  *   // When readable: $code = $server->handleConnection();
+ *   // Standalone CLI: $code = $server->waitForCallback($timeout);
  *
  * Software License Agreement (BSD License)
  * 
@@ -40,6 +44,15 @@ class OAuthCallbackServer
 
 	/** @var string|null */
 	private ?string $error = null;
+
+	/** @var array<int,array{conn:resource,buf:string,since:float}> Pending accepted connections yet to deliver a complete request */
+	private array $pending = [];
+
+	/** Bytes of pipeline input per connection before it is answered 400 and dropped */
+	private const MAX_REQUEST_BYTES = 65536;
+
+	/** Seconds a connection may stay incomplete before reaping */
+	private const IDLE_TIMEOUT = 30.0;
 
 	/**
 	 * Create and start the callback server.
@@ -84,7 +97,8 @@ class OAuthCallbackServer
 	}
 
 	/**
-	 * Get the listening socket resource (for use with stream_select).
+	 * Get the listening socket resource. Event-loop integrations should
+	 * prefer getWatchSockets(), which also covers pending connections.
 	 *
 	 * @return resource
 	 */
@@ -104,35 +118,105 @@ class OAuthCallbackServer
 	}
 
 	/**
-	 * Handle an incoming connection on the socket.
+	 * Get every socket the server is waiting on (listener + accepted
+	 * connections with incomplete requests).
 	 *
-	 * Call this when stream_select indicates the socket is readable.
-	 * Accepts the connection, parses the HTTP request, validates state,
-	 * sends an HTTP response to the browser, and returns the auth code.
+	 * Event-loop integrations should watch ALL of these, not just
+	 * getSocket(): a request split across packets (SSH-tunnel latency)
+	 * makes the accepted connection readable again without the listener
+	 * re-firing.
+	 *
+	 * @return array<int,resource>
+	 */
+	public function getWatchSockets(): array
+	{
+		$sockets = [];
+		if ($this->socket) {
+			$sockets[] = $this->socket;
+		}
+		foreach ($this->pending as $p) {
+			$sockets[] = $p['conn'];
+		}
+		return $sockets;
+	}
+
+	/**
+	 * Service the listener and any pending connections — never blocks.
+	 *
+	 * Call this whenever getWatchSockets() reports readability. Accepts
+	 * queued connections, pumps each pending read buffer until a complete
+	 * HTTP request arrives, then validates state, sends the browser
+	 * response, and returns the auth code when one is received.
 	 *
 	 * @return string|null Authorization code, or null if not received/invalid
 	 */
 	public function handleConnection(): ?string
 	{
-		$conn = @stream_socket_accept($this->socket, 5);
-		if (!$conn) {
-			return null;
+		$code = null;
+
+		// Accept everything pending on the listener
+		while ($this->socket && ($conn = @stream_socket_accept($this->socket, 0)) !== false) {
+			stream_set_blocking($conn, false);
+			$this->pending[(int)$conn] = ['conn' => $conn, 'buf' => '', 'since' => microtime(true)];
 		}
 
-		// Ensure blocking read — SSH tunnels may have latency
-		stream_set_blocking($conn, true);
-		stream_set_timeout($conn, 5);
-		$request = @fread($conn, 8192);
-		if (empty($request)) {
-			fclose($conn);
-			return null;
-		}
+		// Pump each connection's buffer; process only complete requests
+		foreach ($this->pending as $id => &$p) {
+			$data = @fread($p['conn'], 8192);
+			if ($data === '' || $data === false) {
+				if (feof($p['conn'])) {
+					$this->dropPending($p, $id);
+					continue;
+				}
+				// No bytes — reap idle connections, keep waiting otherwise
+				if (microtime(true) - $p['since'] > self::IDLE_TIMEOUT) {
+					$this->sendResponse($p['conn'], 408, "Request timed out");
+					$this->dropPending($p, $id);
+				}
+				continue;
+			}
 
+			$p['buf'] .= $data;
+			if (strlen($p['buf']) > self::MAX_REQUEST_BYTES) {
+				$this->sendResponse($p['conn'], 400, "Invalid request");
+				$this->dropPending($p, $id);
+				continue;
+			}
+
+			// A request is complete once the header block terminates;
+			// OAuth callbacks are GETs, the query is all we consume
+			$headerEnd = strpos($p['buf'], "\r\n\r\n");
+			if ($headerEnd === false) {
+				$headerEnd = strpos($p['buf'], "\n\n");
+			}
+			if ($headerEnd === false) {
+				// Headers not all here yet — wait for more bytes
+				continue;
+			}
+
+			$result = $this->processRequest(substr($p['buf'], 0, $headerEnd));
+			$this->sendResponse($p['conn'], $result['status'], $result['message']);
+			$this->dropPending($p, $id);
+
+			if ($result['code'] !== null) {
+				$code = $result['code'];
+			}
+		}
+		unset($p);
+
+		return $code;
+	}
+
+	/**
+	 * Parse a complete request and decide the outcome.
+	 *
+	 * @return array{status:int, message:string, code:?string}
+	 */
+	private function processRequest(string $request): array
+	{
 		// Parse the GET request line
 		if (!preg_match('/GET\s+([^\s]+)/', $request, $matches)) {
-			$this->sendResponse($conn, 400, "Invalid request");
-			fclose($conn);
-			return null;
+			return ['status' => 400, 'message' => "Invalid request", 'code' => null];
 		}
 
 		$requestUri = $matches[1];
@@ -142,33 +226,39 @@ class OAuthCallbackServer
 		// Check for error response from authorization server
 		if (isset($queryParams['error'])) {
 			$this->error = $queryParams['error_description'] ?? $queryParams['error'];
-			$this->sendResponse($conn, 400, "Authorization failed: {$this->error}");
-			fclose($conn);
-			return null;
+			return ['status' => 400, 'message' => "Authorization failed: {$this->error}", 'code' => null];
 		}
 
 		// Check for authorization code
 		if (!isset($queryParams['code'])) {
-			$this->sendResponse($conn, 400, "No authorization code received");
-			fclose($conn);
-			return null;
+			return ['status' => 400, 'message' => "No authorization code received", 'code' => null];
 		}
 
 		// Validate state if expected
 		if (!empty($this->expectedState)) {
 			$receivedState = $queryParams['state'] ?? '';
 			if ($receivedState !== $this->expectedState) {
-				$this->sendResponse($conn, 400, "State mismatch. Possible CSRF attack.");
-				fclose($conn);
-				return null;
+				return ['status' => 400, 'message' => "State mismatch. Possible CSRF attack.", 'code' => null];
 			}
 		}
 
 		$this->receivedCode = $queryParams['code'];
-		$this->sendResponse($conn, 200, "Authorization successful! You can close this window and return to your application.");
-		fclose($conn);
+		return [
+			'status' => 200,
+			'message' => "Authorization successful! You can close this window and return to your application.",
+			'code' => $this->receivedCode,
+		];
+	}
 
-		return $this->receivedCode;
+	/**
+	 * Close and forget a pending connection.
+	 *
+	 * @param array{conn:resource} $p
+	 */
+	private function dropPending(array $p, int $id): void
+	{
+		@fclose($p['conn']);
+		unset($this->pending[$id]);
 	}
 
 	/**
@@ -184,11 +274,11 @@ class OAuthCallbackServer
 	{
 		$deadline = time() + $timeout;
 
-		while (time() < $deadline) {
+		while (time() < $deadline && $this->socket) {
 			$remaining = $deadline - time();
 			if ($remaining <= 0) break;
 
-			$read = [$this->socket];
+			$read = $this->getWatchSockets();
 			$write = $except = null;
 			$ready = @stream_select($read, $write, $except, $remaining);
 
@@ -241,17 +331,6 @@ class OAuthCallbackServer
 	}
 
 	/**
-	 * Close the listener and free the port.
-	 */
-	public function close(): void
-	{
-		if ($this->socket) {
-			fclose($this->socket);
-			$this->socket = null;
-		}
-	}
-
-	/**
 	 * Attempt to open a URL in the user's default browser.
 	 *
 	 * @param  string $url URL to open
@@ -292,7 +371,31 @@ class OAuthCallbackServer
 	}
 
 	/**
+	 * Close the listener and every pending connection, freeing the port.
+	 */
+	public function close(): void
+	{
+		foreach ($this->pending as $id => $p) {
+			$this->dropPending($p, $id);
+		}
+		if ($this->socket) {
+			fclose($this->socket);
+			$this->socket = null;
+		}
+	}
+
+	public function __destruct()
+	{
+		$this->close();
+	}
+
+	/**
 	 * Send a simple HTTP response to the browser.
+	 *
+	 * Non-blocking: the whole page is far below SO_SNDBUF on loopback, so
+	 * a single non-blocking write is effectively atomic; anything left
+	 * over is abandoned when the caller drops the connection (the code
+	 * has already been captured by then).
 	 *
 	 * @param resource $conn       Client connection
 	 * @param int      $statusCode HTTP status code
@@ -303,6 +406,7 @@ class OAuthCallbackServer
 		$statusText = match($statusCode) {
 			200 => 'OK',
 			400 => 'Bad Request',
+			408 => 'Request Timeout',
 			default => 'Error',
 		};
 
@@ -321,10 +425,5 @@ class OAuthCallbackServer
 			. $html;
 
 		@fwrite($conn, $response);
-	}
-
-	public function __destruct()
-	{
-		$this->close();
 	}
 }
