@@ -139,13 +139,27 @@ class Oauth3LO {
 	}
 
 	/**
-	 * Build the authorization URL for the consent flow.
+	 * The raw authorization-endpoint URL, for consumers that assemble the
+	 * full URL themselves from getAuthorizationParams().
+	 *
+	 * @return string
+	 */
+	public function getAuthorizationEndpoint(): string {
+		return $this->authorization_endpoint;
+	}
+
+	/**
+	 * The authorization-flow query parameters.
+	 *
+	 * Consumers that need extra params (e.g. Atlassian's audience) or a
+	 * different query encoding (RFC 3986 vs 1738) take this array and do
+	 * the http_build_query themselves.
 	 *
 	 * @param string      $codeChallenge The PKCE code challenge (S256).
 	 * @param string|null $state         Optional state parameter for CSRF protection.
-	 * @return string Full authorization URL to redirect the user to.
+	 * @return array
 	 */
-	public function buildAuthorizationUrl(string $codeChallenge, ?string $state = null): string {
+	public function getAuthorizationParams(string $codeChallenge, ?string $state = null): array {
 		$params = [
 			'client_id' => $this->client_id,
 			'redirect_uri' => $this->redirect_uri,
@@ -163,7 +177,18 @@ class Oauth3LO {
 			$params['state'] = $state;
 		}
 
-		return $this->authorization_endpoint . '?' . http_build_query($params);
+		return $params;
+	}
+
+	/**
+	 * Build the authorization URL for the consent flow.
+	 *
+	 * @param string      $codeChallenge The PKCE code challenge (S256).
+	 * @param string|null $state         Optional state parameter for CSRF protection.
+	 * @return string Full authorization URL to redirect the user to.
+	 */
+	public function buildAuthorizationUrl(string $codeChallenge, ?string $state = null): string {
+		return $this->authorization_endpoint . '?' . http_build_query($this->getAuthorizationParams($codeChallenge, $state));
 	}
 
 	/**

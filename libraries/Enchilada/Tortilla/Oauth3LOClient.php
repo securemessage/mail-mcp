@@ -69,6 +69,23 @@ class Oauth3LOClient
 	}
 
 	/**
+	 * The raw authorization-endpoint URL, for consumers that assemble the
+	 * full URL themselves from getAuthorizationParams().
+	 */
+	public function getAuthorizationEndpoint(): string
+	{
+		return $this->oauth->getAuthorizationEndpoint();
+	}
+
+	/**
+	 * The authorization-flow query parameters.
+	 */
+	public function getAuthorizationParams(string $codeChallenge, ?string $state = null): array
+	{
+		return $this->oauth->getAuthorizationParams($codeChallenge, $state);
+	}
+
+	/**
 	 * Build the authorization URL for the consent flow.
 	 */
 	public function buildAuthorizationUrl(string $codeChallenge, ?string $state = null): string
