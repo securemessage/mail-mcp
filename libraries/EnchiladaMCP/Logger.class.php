@@ -10,7 +10,9 @@ namespace EnchiladaMCP;
  * by MCP hosts, so durable diagnostics require an opt-in log file.
  *
  * The logger never throws: any write failure is silently ignored so a
- * logging problem can never break the JSON-RPC protocol stream.
+ * logging problem can never break the JSON-RPC protocol stream. Nor can
+ * it stall it — see mirrorToStderr(), which refuses to fill a stderr
+ * pipe that the host may never drain.
  *
  * Instances are callable (via __invoke) so a Logger can be passed
  * directly to StdioTransport::setLogger(), McpServer::setLogger(), etc.
@@ -37,6 +39,15 @@ class Logger
 		self::LEVEL_INFO  => 'INFO',
 		self::LEVEL_ERROR => 'ERROR',
 	];
+
+	/**
+	 * Bytes we are willing to write to a stderr *pipe* that cannot be put
+	 * into non-blocking mode (Windows). Deliberately smaller than the
+	 * smallest plausible pipe buffer (4 KiB) so a host that never reads
+	 * stderr can still not stall us mid-handshake, while leaving room for
+	 * the startup banner and a fatal configuration error.
+	 */
+	private const STDERR_PIPE_BUDGET = 2048;
 
 	/** @var string|null Log file path (null = file logging disabled) */
 	private ?string $path;
@@ -223,7 +234,91 @@ class Logger
 		}
 
 		if ($this->mirrorStderr) {
-			@fwrite(STDERR, $line);
+			$this->mirrorToStderr($line);
 		}
+	}
+
+	/**
+	 * Write a line to STDERR without ever risking a blocked write.
+	 *
+	 * MCP hosts routinely create a stderr pipe and then read it lazily or
+	 * not at all. Once the OS pipe buffer fills, a blocking
+	 * fwrite(STDERR) never returns and the whole server wedges — the
+	 * host sees a live process that has stopped answering, i.e. a hang.
+	 *
+	 * Three cases, established once per process:
+	 *
+	 *   nonblocking  stream_set_blocking(false) took effect (POSIX). A
+	 *                full pipe drops bytes instead of blocking, so the
+	 *                stream is safe to use without limit.
+	 *
+	 *   safe-sink    stderr is a regular file or a character device
+	 *                (console, /dev/null). There is no peer that has to
+	 *                drain it, so writes cannot stall.
+	 *
+	 *   bounded      stderr is a pipe that could not be made
+	 *                non-blocking. This is Windows: stream_set_blocking()
+	 *                is a no-op for pipes there. Spend a small byte
+	 *                budget so genuine startup errors still surface, then
+	 *                stop before the buffer can fill.
+	 */
+	private function mirrorToStderr(string $line): void
+	{
+		static $mode = null;
+		static $budget = self::STDERR_PIPE_BUDGET;
+
+		if ($mode === null) {
+			$mode = self::classifyStderr();
+		}
+
+		if ($mode !== 'bounded') {
+			@fwrite(STDERR, $line);
+			return;
+		}
+
+		if ($budget <= 0) {
+			return;
+		}
+
+		$budget -= strlen($line);
+		@fwrite(STDERR, $line);
+
+		if ($budget <= 0) {
+			// Say so on both channels: the file log is where the rest of
+			// the diagnostics went, and the reader of stderr needs to
+			// know its stream is deliberately incomplete.
+			$notice = date('Y-m-d\TH:i:sP') . ' [' . $this->tag . '] [INFO] '
+				. 'stderr mirroring stopped after ' . self::STDERR_PIPE_BUDGET . ' bytes: '
+				. 'this platform cannot write to a stderr pipe without risking a stall '
+				. 'if the host does not drain it'
+				. ($this->path !== null ? '. Full log: ' . $this->path : '. Set a log file to keep full diagnostics')
+				. "\n";
+			@fwrite(STDERR, $notice);
+			if ($this->path !== null) {
+				@file_put_contents($this->path, $notice, FILE_APPEND | LOCK_EX);
+			}
+		}
+	}
+
+	/**
+	 * Decide how STDERR may be used: 'nonblocking', 'safe-sink' or
+	 * 'bounded'. See mirrorToStderr() for what each implies.
+	 */
+	private static function classifyStderr(): string
+	{
+		if (@stream_set_blocking(STDERR, false)) {
+			return 'nonblocking';
+		}
+
+		// Not a pipe? Then nothing can fail to drain it.
+		$stat = @fstat(STDERR);
+		if (is_array($stat) && isset($stat['mode'])) {
+			$type = $stat['mode'] & 0170000;   // S_IFMT
+			if ($type === 0100000 || $type === 0020000) {   // S_IFREG | S_IFCHR
+				return 'safe-sink';
+			}
+		}
+
+		return 'bounded';
 	}
 }

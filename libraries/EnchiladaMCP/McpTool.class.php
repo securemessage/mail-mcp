@@ -34,6 +34,11 @@ class McpTool
 	 *                                     set, the tool advertises that it returns structured output
 	 *                                     and clients may validate against it. Declared last so that
 	 *                                     existing positional construction is unaffected.
+	 * @param string|null $title           Human-readable display title (MCP 2025-06-18+). Shown by
+	 *                                     client UIs alongside or instead of the tool name
+	 *                                     ("Recall memories" vs `recall`). Appended after all
+	 *                                     earlier parameters so positional construction is
+	 *                                     unaffected.
 	 *
 	 * Annotation hints follow the MCP specification's tool annotations. They are
 	 * advisory only — clients may use them to inform UX decisions (e.g. confirmation
@@ -48,6 +53,7 @@ class McpTool
 		public ?bool $idempotentHint = null,
 		public ?bool $openWorldHint = null,
 		public ?string $renamedFrom = null,
-		public ?array $outputSchema = null
+		public ?array $outputSchema = null,
+		public ?string $title = null
 	) {}
 }

@@ -136,6 +136,134 @@ class ToolResult
 	}
 
 	/**
+	 * Append content blocks to an existing result.
+	 *
+	 * Lets a result built by text()/structured() gain pointers
+	 * (resource_link) or embedded resources after construction — the
+	 * primary text block stays first for clients that read only the text.
+	 *
+	 * @param  array<string,mixed> ...$blocks MCP content blocks (build with
+	 *                                        resourceLink()/embeddedResource())
+	 * @return self Fluent interface
+	 */
+	public function withContent(array ...$blocks): self
+	{
+		foreach ($blocks as $block) {
+			$this->content[] = $block;
+		}
+		return $this;
+	}
+
+	/**
+	 * Build a resource_link content block (MCP 2025-11-25+).
+	 *
+	 * A resource_link is a pointer the client can resources/read (or
+	 * surface as a clickable artifact) without the model spending a turn
+	 * on a tool call. Links are not required to appear in resources/list.
+	 *
+	 * @param  string              $uri         Resource URI (e.g.
+	 *                                          myapp://document/{title})
+	 * @param  string              $name        Human-readable display name
+	 * @param  string|null         $description Short prose description
+	 * @param  string|null         $mimeType    MIME type the resource
+	 *                                          returns when read
+	 * @param  array<string,mixed> $annotations audience ('user'/'assistant'),
+	 *                                          priority (0..1), lastModified
+	 *                                          (ISO-8601); validated
+	 * @return array<string,mixed>              A content block for mixed()/withContent()
+	 * @throws \InvalidArgumentException        On bad audience or priority
+	 */
+	public static function resourceLink(string $uri, string $name, ?string $description = null, ?string $mimeType = null, array $annotations = []): array
+	{
+		$block = [
+			'type' => 'resource_link',
+			'uri' => $uri,
+			'name' => $name,
+		];
+		if ($description !== null) {
+			$block['description'] = $description;
+		}
+		if ($mimeType !== null) {
+			$block['mimeType'] = $mimeType;
+		}
+		$annotations = self::validateAnnotations($annotations);
+		if (!empty($annotations)) {
+			$block['annotations'] = $annotations;
+		}
+		return $block;
+	}
+
+	/**
+	 * Build an embedded resource content block (MCP 2025-11-25+).
+	 *
+	 * The resource body is inlined with its identity (uri, mimeType) so
+	 * clients that understand resources can render typed content instead
+	 * of raw text. Binary bodies are not supported here — callers needing
+	 * blob payloads can add them through mixed().
+	 *
+	 * @param  string              $uri         Resource URI
+	 * @param  string              $mimeType    Body MIME type
+	 * @param  string              $text        Resource body
+	 * @param  array<string,mixed> $annotations audience/priority/lastModified; validated
+	 * @return array<string,mixed>              A content block for mixed()/withContent()
+	 * @throws \InvalidArgumentException        On bad audience or priority
+	 */
+	public static function embeddedResource(string $uri, string $mimeType, string $text, array $annotations = []): array
+	{
+		$resource = [
+			'uri' => $uri,
+			'mimeType' => $mimeType,
+			'text' => $text,
+		];
+		$annotations = self::validateAnnotations($annotations);
+		if (!empty($annotations)) {
+			$resource['annotations'] = $annotations;
+		}
+		return [
+			'type' => 'resource',
+			'resource' => $resource,
+		];
+	}
+
+	/**
+	 * Validate content-block annotations, keeping only spec keys.
+	 *
+	 * @param  array<string,mixed> $annotations
+	 * @return array<string,mixed>
+	 * @throws \InvalidArgumentException
+	 */
+	public static function validateAnnotations(array $annotations): array
+	{
+		$clean = [];
+		if (isset($annotations['audience'])) {
+			$audience = array_values($annotations['audience']);
+			foreach ($audience as $role) {
+				if (!in_array($role, ['user', 'assistant'], true)) {
+					throw new \InvalidArgumentException("annotations.audience must contain only 'user' and/or 'assistant'");
+				}
+			}
+			$clean['audience'] = $audience;
+		}
+		if (isset($annotations['priority'])) {
+			$priority = $annotations['priority'];
+			if (!is_int($priority) && !is_float($priority)) {
+				throw new \InvalidArgumentException('annotations.priority must be a number between 0 and 1');
+			}
+			if ($priority < 0.0 || $priority > 1.0) {
+				throw new \InvalidArgumentException('annotations.priority must be between 0 and 1');
+			}
+			$clean['priority'] = $priority;
+		}
+		if (isset($annotations['lastModified'])) {
+			if (!is_string($annotations['lastModified'])) {
+				throw new \InvalidArgumentException('annotations.lastModified must be an ISO-8601 string');
+			}
+			$clean['lastModified'] = $annotations['lastModified'];
+		}
+		return $clean;
+	}
+
+	/**
 	 * Get the MCP-formatted response array for tools/call result.
 	 *
 	 * @return array<string, mixed>
