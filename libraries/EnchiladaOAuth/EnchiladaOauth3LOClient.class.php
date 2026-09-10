@@ -6,12 +6,6 @@
  * Helper for obtaining and caching OAuth2 access tokens using the
  * authorization_code grant type with PKCE (RFC 7636).
  *
- * Backwards-compatible wrapper: performs token-endpoint HTTP through
- * the \EnchiladaHTTP instance given at construction and delegates all
- * protocol logic to \EnchiladaOAuth\Oauth3LO. Consumers wanting
- * loop-aware token HTTP use \Enchilada\Tortilla\Oauth3LOClient instead
- * (same protocol core, driven by Tortilla's HttpClient).
- *
  * Software License Agreement (BSD License)
  *
  * Copyright (c) 2026, The Daniel Morante Company, Inc.
