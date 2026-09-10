@@ -146,6 +146,13 @@ if (isset($toolInstances['ConnectionTools']) && method_exists($toolInstances['Co
 	$toolInstances['ConnectionTools']->setHttpTransport($loop, $server->tick(...));
 }
 
+// IMAP socket I/O rides the same loop/progress context: with a loop and
+// dispatch fibers, network waits park the fiber; otherwise the bounded
+// poll emits progress each slice.
+if (method_exists($manager, 'setImapTransport')) {
+	$manager->setImapTransport($loop, $server->tick(...));
+}
+
 $transport->run();
 
 debug("MCP server stopped");
