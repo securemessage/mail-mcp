@@ -723,24 +723,22 @@ class SocketImapClient implements ImapClientInterface
 	 */
 	private function pump(float $deadline): bool
 	{
-		$chunk = @fread($this->socket, 65536);
-		if ($chunk === false) {
+		while (true) {
+			$chunk = @fread($this->socket, 65536);
+			if ($chunk !== false && $chunk !== '') {
+				$this->readBuffer .= $chunk;
+				return true;
+			}
 			if (feof($this->socket)) {
 				return false;
 			}
-			throw new \RuntimeException('IMAP socket read error');
+			if ($chunk === false) {
+				throw new \RuntimeException('IMAP socket read error');
+			}
+			if (!$this->waitReadable($deadline)) {
+				throw new \RuntimeException('IMAP socket read timed out');
+			}
 		}
-		if ($chunk !== '') {
-			$this->readBuffer .= $chunk;
-			return true;
-		}
-		if (feof($this->socket)) {
-			return false;
-		}
-		if (!$this->waitReadable($deadline)) {
-			throw new \RuntimeException('IMAP socket read timed out');
-		}
-		return true;
 	}
 
 	/**
