@@ -9,7 +9,7 @@
  */
 
 use EnchiladaMCP\McpTool;
-use EnchiladaMCP\StdioTransport;
+use Enchilada\Tortilla\StdioTransport;
 use EnchiladaOAuth\EnchiladaOauth3LOClient;
 use EnchiladaOAuth\OAuthCallbackServer;
 use Mail\InstanceManager;

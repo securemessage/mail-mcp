@@ -23,25 +23,72 @@ class McpServer
 	/** @var array{name:string,version:string} */
 	private array $serverInfo;
 
+	/** @var string Human-readable display name (2025-11-25 Implementation.title); empty = omit. */
+	private string $serverTitle = '';
+
+	/** @var string Human-readable description (2025-11-25 Implementation.description); empty = omit. */
+	private string $serverDescription = '';
+
+	/** @var string Website URL (2025-11-25 Implementation.websiteUrl); empty = omit. */
+	private string $serverWebsiteUrl = '';
+
+	/**
+	 * @var array<array{src:string,mimeType?:string,sizes?:string[],theme?:string}>
+	 *       Sized icons for client UIs (2025-11-25 Implementation.icons); empty = omit.
+	 */
+	private array $serverIcons = [];
+
+	/** MCP revision that switches the server to modern (stateless) era. */
+	public const MODERN_PROTOCOL_VERSION = '2026-07-28';
+
+	/** Newest legacy (handshake-based) MCP revision supported. */
+	public const LEGACY_PROTOCOL_VERSION = '2025-11-25';
+
 	/**
 	 * Latest MCP protocol revision this library implements. Exposed so
 	 * downstream code can report or default to it without restating the
-	 * literal and drifting from the server.
+	 * literal and drifting from the server. Points at the modern revision;
+	 * the legacy `initialize` handshake negotiates from
+	 * {@see legacyVersions()} and never answers with the modern literal.
 	 */
-	public const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
+	public const DEFAULT_PROTOCOL_VERSION = self::MODERN_PROTOCOL_VERSION;
 
-	/** @var string Preferred (latest) MCP protocol version supported. */
-	private string $protocolVersion = self::DEFAULT_PROTOCOL_VERSION;
+	/** Unsupported protocol version (data.supported, data.requested). */
+	public const ERR_UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+	/**
+	 * Header/body mismatch on modern Streamable HTTP requests
+	 * (emitted by the HTTP transports, not this class).
+	 */
+	public const ERR_HEADER_MISMATCH = -32020;
 
 	/**
 	 * @var string[] Every MCP protocol version this server can speak, newest
-	 *               first. Used to answer `initialize` with the client's own
-	 *               version when we support it.
+	 *               first, both eras. Used for `server/discover` and for the
+	 *               UnsupportedProtocolVersion data.supported list.
 	 */
-	private array $supportedProtocolVersions = [self::DEFAULT_PROTOCOL_VERSION, '2025-03-26'];
+	private array $supportedProtocolVersions = [self::MODERN_PROTOCOL_VERSION, self::LEGACY_PROTOCOL_VERSION, '2025-06-18', '2025-03-26'];
+
+	/** @var string[] Newest-first handshake-era revisions `initialize` may negotiate. */
+	private array $legacyProtocolVersions = [self::LEGACY_PROTOCOL_VERSION, '2025-06-18', '2025-03-26'];
+
+	/** @var string[] Per-request `_meta` revisions (no handshake, no sessions). */
+	private array $modernProtocolVersions = [self::MODERN_PROTOCOL_VERSION];
 
 	/** @var string Version agreed during the last `initialize`. */
-	private string $negotiatedProtocolVersion = self::DEFAULT_PROTOCOL_VERSION;
+	private string $negotiatedProtocolVersion = self::LEGACY_PROTOCOL_VERSION;
+
+	/** @var string[] Result methods that carry ttlMs/cacheScope on modern requests. */
+	private const CACHEABLE_LIST_METHODS = ['server/discover', 'tools/list', 'resources/list', 'resources/templates/list', 'resources/read'];
+
+	/** @var int ttlMs hint for list/discover results on modern requests (1 hour; the tool and resource sets change only with configuration). */
+	private int $listCacheTtlMs = 3600000;
+
+	/** @var int ttlMs hint for resources/read results on modern requests (0 = immediately stale; memory is live data). */
+	private int $readCacheTtlMs = 0;
+
+	/** @var string cacheScope hint on modern cacheable results ("private" — these deployments are single-tenant). */
+	private string $cacheScope = 'private';
 
 	/** @var string Server instructions for AI agents (included in initialize response). */
 	private string $instructions = '';
@@ -54,6 +101,30 @@ class McpServer
 
 	/** @var callable|null Optional logger: function(string $message): void */
 	private $logger = null;
+
+	/**
+	 * Notification writer: function(string $method, array $params): void.
+	 *
+	 * The transport wires its own write path here so the server can push
+	 * progress notifications during a long call without knowing anything
+	 * about the transport itself.
+	 */
+	private ?\Closure $notifier = null;
+
+	/**
+	 * @var string|int|float|null progressToken of the request currently being
+	 *      dispatched (from params._meta.progressToken), null when idle.
+	 */
+	private string|int|float|null $activeProgressToken = null;
+
+	/** @var float When the currently dispatched request started */
+	private float $activeRequestStartedAt = 0.0;
+
+	/** @var float Last time a progress notification was emitted for the active request */
+	private float $lastProgressAt = 0.0;
+
+	/** @var int Minimum seconds between progress notifications */
+	private int $progressThrottleSeconds = 1;
 
 	/**
 	 * Create a new MCP server instance.
@@ -71,6 +142,63 @@ class McpServer
 	}
 
 	/**
+	 * Wire the notification writer — a callable that pushes a JSON-RPC
+	 * notification to the client.
+	 *
+	 * The application wires the transport's write path here (e.g.
+	 * Enchilada\Tortilla\StdioTransport's sendNotification). The
+	 * server never knows what kind of transport it is talking through.
+	 *
+	 * @param callable $notifier function(string $method, array $params): void
+	 */
+	public function setNotifier(callable $notifier): void
+	{
+		$this->notifier = $notifier(...);
+	}
+
+	/**
+	 * Emit a progress notification for the in-flight request, throttled
+	 * to one per progressThrottleSeconds.
+	 *
+	 * Called by the transport's progress timer (reactor mode) and by
+	 * the Enchilada\Tortilla\HttpClient blocking-mode poll loop.
+	 * Hosts that sent a progressToken reset their request timeout on
+	 * each notification, keeping slow calls alive; under protocol
+	 * revision 2026-07-28 (which removed `ping`) this is the only
+	 * liveness signal available during a call.
+	 *
+	 * Servicing inbound traffic is the transport's own concern (its
+	 * stdin watcher stays armed while a call is suspended).
+	 *
+	 * Never throws; safe to call from any point in tool code.
+	 */
+	public function tick(): void
+	{
+		if ($this->notifier === null) {
+			return;
+		}
+
+		if ($this->activeProgressToken === null) {
+			return;
+		}
+		$now = microtime(true);
+		if (($now - $this->lastProgressAt) < $this->progressThrottleSeconds) {
+			return;
+		}
+		$this->lastProgressAt = $now;
+		$elapsed = round($now - $this->activeRequestStartedAt, 1);
+		try {
+			($this->notifier)('notifications/progress', [
+				'progressToken' => $this->activeProgressToken,
+				'progress' => $elapsed,
+				'message' => "in progress ({$elapsed}s elapsed)",
+			]);
+		} catch (\Throwable $e) {
+			// Best-effort; a failed progress write must not fail the call.
+		}
+	}
+
+	/**
 	 * Get the protocol version agreed during the last `initialize`.
 	 *
 	 * Useful for tools that want to withhold a newer-revision field from a
@@ -81,6 +209,112 @@ class McpServer
 	public function negotiatedProtocolVersion(): string
 	{
 		return $this->negotiatedProtocolVersion;
+	}
+
+	/**
+	 * All protocol versions this server can speak, newest first, both eras.
+	 * Transports must advertise and validate from this list rather than
+	 * hardcoding their own (the 2025-11-25 rollout required touching both).
+	 *
+	 * @return string[]
+	 */
+	public function supportedVersions(): array
+	{
+		return $this->supportedProtocolVersions;
+	}
+
+	/**
+	 * Handshake-era (initialize-based) versions supported, newest first.
+	 *
+	 * @return string[]
+	 */
+	public function legacyVersions(): array
+	{
+		return $this->legacyProtocolVersions;
+	}
+
+	/**
+	 * Modern (per-request metadata, stateless) versions supported.
+	 *
+	 * @return string[]
+	 */
+	public function modernVersions(): array
+	{
+		return $this->modernProtocolVersions;
+	}
+
+	/**
+	 * The protocol version a raw decoded JSON-RPC request declares in
+	 * `params._meta['io.modelcontextprotocol/protocolVersion']`, or null
+	 * when absent (legacy-shaped request).
+	 *
+	 * @param  array<string,mixed> $request Decoded JSON-RPC request object
+	 */
+	public static function declaredVersionOf(array $request): ?string
+	{
+		$v = $request['params']['_meta']['io.modelcontextprotocol/protocolVersion'] ?? null;
+		return is_string($v) ? $v : null;
+	}
+
+	/**
+	 * Decode a modern Streamable HTTP header value that may carry the
+	 * `=?base64?...?=` sentinel encoding (2026-07-28 Value Encoding).
+	 *
+	 * A plain value must be header-safe per RFC 9110 (visible ASCII, space,
+	 * tab — and no leading/trailing whitespace, which clients are required
+	 * to Base64-encode instead). Returns [valid, decodedValue].
+	 *
+	 * @param  string|null $raw Raw header value
+	 * @return array{0:bool,1:?string}
+	 */
+	public static function decodeSentinelHeaderValue(?string $raw): array
+	{
+		if ($raw === null) {
+			return [false, null];
+		}
+		if (str_starts_with($raw, '=?base64?') && str_ends_with($raw, '?=')) {
+			$decoded = base64_decode(substr($raw, 9, -2), true);
+			return $decoded === false ? [false, null] : [true, $decoded];
+		}
+		if ($raw !== trim($raw) || preg_match('/[^\t\x20-\x7E]/', $raw)) {
+			return [false, null];
+		}
+		return [true, $raw];
+	}
+
+	/**
+	 * True when the request carries a modern-era `_meta` protocol version.
+	 * Era is decided per request, not per connection: a dual-era client may
+	 * mix shaped requests on one transport while probing.
+	 *
+	 * @param  array<string,mixed> $request Decoded JSON-RPC request object
+	 */
+	public function isModernRequest(array $request): bool
+	{
+		return in_array(self::declaredVersionOf($request), $this->modernProtocolVersions, true);
+	}
+
+	/**
+	 * Override cache hints on modern cacheable results.
+	 *
+	 * @param  int    $listTtlMs ttlMs for server/discover, tools/list,
+	 *                           resources/list, resources/templates/list
+	 * @param  int    $readTtlMs ttlMs for resources/read
+	 * @param  string $scope     "private" (default) or "public"
+	 * @throws \InvalidArgumentException on negative TTL or unknown scope
+	 */
+	public function setCachePolicy(int $listTtlMs, int $readTtlMs, string $scope = 'private'): self
+	{
+		if ($listTtlMs < 0 || $readTtlMs < 0) {
+			throw new \InvalidArgumentException('ttlMs must be >= 0');
+		}
+		if (!in_array($scope, ['public', 'private'], true)) {
+			throw new \InvalidArgumentException("cacheScope must be 'public' or 'private'");
+		}
+		$this->listCacheTtlMs = $listTtlMs;
+		$this->readCacheTtlMs = $readTtlMs;
+		$this->cacheScope = $scope;
+		return $this;
 	}
 
 	/**
@@ -96,6 +330,84 @@ class McpServer
 	{
 		$this->instructions = $instructions;
 		return $this;
+	}
+
+	/**
+	 * Set the human-readable display name (Implementation.title, 2025-11-25).
+	 */
+	public function setTitle(string $title): self
+	{
+		$this->serverTitle = $title;
+		return $this;
+	}
+
+	/**
+	 * Set the human-readable description (Implementation.description, 2025-11-25).
+	 */
+	public function setDescription(string $description): self
+	{
+		$this->serverDescription = $description;
+		return $this;
+	}
+
+	/**
+	 * Set the implementation website URL (Implementation.websiteUrl, 2025-11-25).
+	 */
+	public function setWebsiteUrl(string $url): self
+	{
+		$this->serverWebsiteUrl = $url;
+		return $this;
+	}
+
+	/**
+	 * Set sized icons for client UIs (Implementation.icons, 2025-11-25).
+	 *
+	 * Each entry: ['src' => (HTTPS URL or data: URI, required),
+	 *              'mimeType' => ?string, 'sizes' => ?string[] ('WxH' or
+	 *              'any'), 'theme' => ?'light'|'dark'].
+	 * Clients strictly older than 2025-11-25 ignore unknown serverInfo
+	 * members, so icons can be sent unconditionally.
+	 *
+	 * @param  array<array<string,mixed>> $icons
+	 * @throws \InvalidArgumentException  If an icon is missing src or has an
+	 *                                    invalid theme
+	 */
+	public function setIcons(array $icons): self
+	{
+		foreach ($icons as $i => $icon) {
+			if (!is_array($icon) || !is_string($icon['src'] ?? null) || $icon['src'] === '') {
+				throw new \InvalidArgumentException("Icon #{$i} requires a non-empty string 'src'");
+			}
+			if (isset($icon['theme']) && !in_array($icon['theme'], ['light', 'dark'], true)) {
+				throw new \InvalidArgumentException("Icon #{$i} theme must be 'light' or 'dark'");
+			}
+		}
+		$this->serverIcons = array_values($icons);
+		return $this;
+	}
+
+	/**
+	 * The serverInfo payload sent in initialize, including any configured
+	 * 2025-11-25 Implementation metadata.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function implementationInfo(): array
+	{
+		$info = $this->serverInfo;
+		if ($this->serverTitle !== '') {
+			$info['title'] = $this->serverTitle;
+		}
+		if ($this->serverDescription !== '') {
+			$info['description'] = $this->serverDescription;
+		}
+		if ($this->serverWebsiteUrl !== '') {
+			$info['websiteUrl'] = $this->serverWebsiteUrl;
+		}
+		if (!empty($this->serverIcons)) {
+			$info['icons'] = $this->serverIcons;
+		}
+		return $info;
 	}
 
 	/**
@@ -157,6 +469,20 @@ class McpServer
 		$method = $request['method'] ?? '';
 		$params = $request['params'] ?? [];
 
+		// Track the progressToken of the dispatched request so the
+		// transport's progress timer (and Tortilla HttpClient's
+		// blocking-mode poll) can keep the host's timeout reset while it
+		// runs. Liveness traffic is exempt: it is answered out of band
+		// while a call is still in flight and must not clobber that
+		// call's progress state.
+		$trackProgress = !in_array($method, ['ping', 'notifications/cancelled'], true);
+		if ($trackProgress) {
+			$token = $params['_meta']['progressToken'] ?? null;
+			$this->activeProgressToken = (is_string($token) || is_int($token) || is_float($token)) ? $token : null;
+			$this->activeRequestStartedAt = microtime(true);
+			$this->lastProgressAt = 0.0;
+		}
+
 		$started = microtime(true);
 		if ($method === 'tools/call') {
 			$toolName = $params['name'] ?? '';
@@ -165,9 +491,31 @@ class McpServer
 			$this->log("Request {$method} (id=" . json_encode($id) . ')');
 		}
 
+		// Era decision (2026-07-28, dual-era): a request is modern when its
+		// params._meta carries a protocolVersion we implement as modern. A
+		// declared version we do not implement at all is rejected with
+		// UnsupportedProtocolVersionError so dual-era clients can pick from
+		// data.supported and retry instead of guessing legacy.
+		$declared = self::declaredVersionOf($request);
+		$modern = in_array($declared, $this->modernProtocolVersions, true);
+		if ($declared !== null && !in_array($declared, $this->supportedProtocolVersions, true)) {
+			$this->log("Error {$method} (id=" . json_encode($id) . '): unsupported protocol version ' . $declared);
+			return $this->errorResponse($id, self::ERR_UNSUPPORTED_PROTOCOL_VERSION, 'Unsupported protocol version', [
+				'supported' => $this->supportedProtocolVersions,
+				'requested' => $declared,
+			]);
+		}
+
 		try {
+			if ($method === 'ping' && $modern) {
+				// Ping was removed from the modern revision; returning a
+				// normal result is what the client uses to infer era.
+				throw new \Exception('Method not found: ping (removed in protocol revision 2026-07-28)', -32601);
+			}
+
 			$result = match($method) {
 				'initialize' => $this->handleInitialize($params),
+				'server/discover' => $this->handleServerDiscover(),
 				'notifications/initialized' => null,
 				'tools/list' => $this->handleToolsList($params),
 				'tools/call' => $this->handleToolsCall($params),
@@ -181,6 +529,14 @@ class McpServer
 			// Notifications don't get responses
 			if ($result === null) {
 				return [];
+			}
+
+			// Modern-era result decoration: resultType on every result,
+			// _meta serverInfo, and caching hints on the cacheable set.
+			// handleServerDiscover() decorates itself because it must answer
+			// in modern shape even for legacy-shaped probes.
+			if ($modern && $method !== 'server/discover' && $method !== 'initialize') {
+				$result = $this->modernizeResult($result, $method);
 			}
 
 			$elapsed = round((microtime(true) - $started) * 1000, 1);
@@ -197,6 +553,10 @@ class McpServer
 			$elapsed = round((microtime(true) - $started) * 1000, 1);
 			$this->log("Error {$method}" . ($method === 'tools/call' ? " '{$toolName}'" : '') . " (id=" . json_encode($id) . ") {$elapsed}ms: {$e->getMessage()}");
 			return $this->errorResponse($id, (int)($e->getCode()) ?: -32603, $e->getMessage());
+		} finally {
+			if ($trackProgress) {
+				$this->activeProgressToken = null;
+			}
 		}
 	}
 
@@ -262,41 +622,94 @@ class McpServer
 			try {
 				($this->onReinitialize)();
 			} catch (\Throwable $e) {
-				// Non-fatal — best-effort cleanup
-				fwrite(STDERR, "[mcp] Re-initialize cleanup error: {$e->getMessage()}\n");
+				// Non-fatal — best-effort cleanup. Route through the logger:
+				// a raw blocking STDERR write can stall the whole transport
+				// when the host does not drain the pipe.
+				$this->log("Re-initialize cleanup error: {$e->getMessage()}");
 			}
 		}
 
 		$this->initialized = true;
 
-		// Version negotiation. Previously the requested version was ignored
-		// and the server always answered with its own, which meant a client
-		// asking for a revision we support could still be told otherwise.
-		// Per spec: echo the client's version when supported, else answer
-		// with our latest and let the client decide whether to continue.
+		// Version negotiation (legacy handshake only): echo the client's
+		// version when it is a handshake-era revision we support, else answer
+		// our newest legacy revision and let the client decide whether to
+		// continue. The modern literal is never returned here — modern
+		// clients do not initialize, and agreeing to a modern version inside
+		// a handshake would let a client run modern semantics without the
+		// per-request metadata the modern path validates on.
 		$requested = $params['protocolVersion'] ?? null;
 		$this->negotiatedProtocolVersion =
-			(is_string($requested) && in_array($requested, $this->supportedProtocolVersions, true))
+			(is_string($requested) && in_array($requested, $this->legacyProtocolVersions, true))
 				? $requested
-				: $this->protocolVersion;
+				: self::LEGACY_PROTOCOL_VERSION;
 
 		$result = [
 			'protocolVersion' => $this->negotiatedProtocolVersion,
-			'capabilities' => [
-				'tools' => new \stdClass(),
-				'logging' => new \stdClass(),
-			],
-			'serverInfo' => $this->serverInfo,
+			'capabilities' => $this->capabilityMap(),
+			'serverInfo' => $this->implementationInfo(),
 		];
 
 		if (!empty($this->instructions)) {
 			$result['instructions'] = $this->instructions;
 		}
 
-		if ($this->registry->hasResources()) {
-			$result['capabilities']['resources'] = new \stdClass();
-		}
+		return $result;
+	}
 
+	/**
+	 * The capabilities map shared by `initialize` and `server/discover`.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function capabilityMap(): array
+	{
+		$capabilities = [
+			'tools' => new \stdClass(),
+			'logging' => new \stdClass(),
+		];
+		if ($this->registry->hasResources()) {
+			$capabilities['resources'] = new \stdClass();
+		}
+		return $capabilities;
+	}
+
+	/**
+	 * Handle a server/discover request (2026-07-28; servers MUST implement
+	 * it). Answers in modern shape unconditionally — dual-era clients on
+	 * stdio send this as their era probe, before any negotiation, so the
+	 * result must not depend on the request having modern `_meta`.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function handleServerDiscover(): array
+	{
+		$result = [
+			'supportedVersions' => $this->supportedProtocolVersions,
+			'capabilities' => $this->capabilityMap(),
+		];
+		if (!empty($this->instructions)) {
+			$result['instructions'] = $this->instructions;
+		}
+		return $this->modernizeResult($result, 'server/discover');
+	}
+
+	/**
+	 * Decorate a result with the fields 2026-07-28 requires: `resultType`
+	 * on every result, `_meta` server identification, and ttlMs/cacheScope
+	 * hints on cacheable list and read results.
+	 *
+	 * @param  array<string,mixed> $result Undecorated method result
+	 * @return array<string,mixed>
+	 */
+	private function modernizeResult(array $result, string $method): array
+	{
+		$result = ['resultType' => 'complete'] + $result;
+		if (in_array($method, self::CACHEABLE_LIST_METHODS, true)) {
+			$result['ttlMs'] = $method === 'resources/read' ? $this->readCacheTtlMs : $this->listCacheTtlMs;
+			$result['cacheScope'] = $this->cacheScope;
+		}
+		$result['_meta'] = ['io.modelcontextprotocol/serverInfo' => $this->implementationInfo()];
 		return $result;
 	}
 
@@ -431,20 +844,24 @@ class McpServer
 	/**
 	 * Build a JSON-RPC error response.
 	 *
-	 * @param  mixed  $id      Request ID
-	 * @param  int    $code    Error code
-	 * @param  string $message Error message
+	 * @param  mixed                $id      Request ID
+	 * @param  int                  $code    Error code
+	 * @param  string               $message Error message
+	 * @param  array<string,mixed>|null $data Structured error data (e.g. the
+	 *                                       supported/requested fields of
+	 *                                       UnsupportedProtocolVersionError)
 	 * @return array<string,mixed>
 	 */
-	private function errorResponse($id, int $code, string $message): array
+	private function errorResponse($id, int $code, string $message, ?array $data = null): array
 	{
+		$error = ['code' => $code, 'message' => $message];
+		if ($data !== null) {
+			$error['data'] = $data;
+		}
 		return [
 			'jsonrpc' => '2.0',
 			'id' => $id,
-			'error' => [
-				'code' => $code,
-				'message' => $message,
-			],
+			'error' => $error,
 		];
 	}
 }

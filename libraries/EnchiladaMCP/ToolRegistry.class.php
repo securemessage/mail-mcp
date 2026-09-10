@@ -106,6 +106,12 @@ class ToolRegistry
 				$tool['outputSchema'] = $attr->outputSchema;
 			}
 
+			// Human-readable display title (MCP 2025-06-18+): client UIs
+			// prefer it over the machine name. Advertised only when set.
+			if ($attr->title !== null) {
+				$tool['title'] = $attr->title;
+			}
+
 			$annotations = array_filter([
 				'readOnlyHint' => $attr->readOnlyHint,
 				'destructiveHint' => $attr->destructiveHint,
@@ -297,12 +303,16 @@ class ToolRegistry
 			}
 		}
 
-		$this->resourceTemplates[$uriTemplate] = [
+		$meta = [
 			'uriTemplate' => $uriTemplate,
 			'name' => $name,
 			'description' => $description ?: "Resource: {$name}",
 			'mimeType' => $attr->mimeType,
 		];
+		if ($attr->annotations !== null && ($clean = ToolResult::validateAnnotations($attr->annotations)) !== []) {
+			$meta['annotations'] = $clean;
+		}
+		$this->resourceTemplates[$uriTemplate] = $meta;
 
 		$this->resourceHandlers[$uriTemplate] = [$handler, $method->getName()];
 	}
@@ -329,12 +339,13 @@ class ToolRegistry
 		$resources = [];
 		foreach ($this->resourceTemplates as $meta) {
 			if (!str_contains($meta['uriTemplate'], '{')) {
-				$resources[] = [
+				$resources[] = array_filter([
 					'uri' => $meta['uriTemplate'],
 					'name' => $meta['name'],
 					'description' => $meta['description'],
 					'mimeType' => $meta['mimeType'],
-				];
+					'annotations' => $meta['annotations'] ?? null,
+				], fn($v) => $v !== null);
 			}
 		}
 		return $resources;
@@ -382,13 +393,35 @@ class ToolRegistry
 				}
 
 				$result = $method->invokeArgs($handler, $args);
-				$text = is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_SLASHES);
 
-				return [
+				// Rich return: an array with a string 'text' AND an
+				// 'annotations' array is treated as a full resource body so
+				// handlers can attach per-read dynamic annotations
+				// (e.g. lastModified of the thing actually read). Plain
+				// strings and all other arrays keep the legacy behavior.
+				if (is_array($result) && isset($result['annotations']) && is_string($result['text'] ?? null)) {
+					$content = [
+						'uri' => $uri,
+						'mimeType' => $result['mimeType'] ?? $meta['mimeType'],
+						'text' => $result['text'],
+					];
+					$annotations = ToolResult::validateAnnotations($result['annotations']) ?: ($meta['annotations'] ?? []);
+					if ($annotations !== []) {
+						$content['annotations'] = $annotations;
+					}
+					return $content;
+				}
+
+				$text = is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_SLASHES);
+				$content = [
 					'uri' => $uri,
 					'mimeType' => $meta['mimeType'],
 					'text' => $text,
 				];
+				if (isset($meta['annotations'])) {
+					$content['annotations'] = $meta['annotations'];
+				}
+				return $content;
 			}
 		}
 

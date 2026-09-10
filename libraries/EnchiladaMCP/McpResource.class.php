@@ -29,11 +29,21 @@ class McpResource
 	 * @param string|null $name         Resource name for display (defaults to method name)
 	 * @param string|null $description  Description for clients (defaults to docblock)
 	 * @param string      $mimeType     MIME type of resource content (default: application/json)
+	 * @param array|null  $annotations  Static MCP annotations for this resource
+	 *                                  (audience: 'user'/'assistant', priority: 0..1,
+	 *                                  lastModified: ISO-8601). Surfaced in list output
+	 *                                  and as the default on resources/read results;
+	 *                                  a handler returning
+	 *                                  ['text' => ..., 'annotations' => [...]] overrides
+	 *                                  them with per-resource dynamic values.
+	 *                                  Trailing so named and positional callers are
+	 *                                  unaffected.
 	 */
 	public function __construct(
 		public string $uriTemplate,
 		public ?string $name = null,
 		public ?string $description = null,
-		public string $mimeType = 'application/json'
+		public string $mimeType = 'application/json',
+		public ?array $annotations = null
 	) {}
 }

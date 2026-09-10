@@ -4,6 +4,10 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+### Changed
+- Enchilada transport split: `EnchiladaMCP` re-vendored as the slim protocol core; stdio transport now comes from the new `Enchilada\Tortilla` library with the event loop opt-in wired in the composition root (`bin/mail-mcp`). Comal is vendored, so the transport runs in reactor mode where pollable — the OAuth callback listener continues to be serviced continuously during the interactive authorization flow
+- HTTP libraries moved to `libraries/HTTP/` and `EnchiladaMultiHTTP` added (MultiHTTP `setVerifySsl`/`setTimeout` parity and `getResult()` diagnostics included)
+
 ## [1.2.0] - 2026-09-04
 
 ### Added
