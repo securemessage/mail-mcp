@@ -8,6 +8,29 @@
  *
  * Designed for future extraction to Enchilada Extras as EnchiladaMail.
  *
+ * I/O is event-driven: the socket is permanently non-blocking after
+ * connect and every wait goes through pump()/waitReadable(), which pick
+ * the regime setTransport() was given (same convention as
+ * Enchilada\Tortilla\HttpClient):
+ *
+ *   reactor mode  An EventLoop is injected AND the caller runs inside a
+ *                 Fiber: the fiber parks on an onReadable watcher (plus
+ *                 a deadline watchdog), so the transport keeps serving
+ *                 protocol traffic while IMAP waits on the network.
+ *                 Progress comes from the transport's own timer — this
+ *                 client stays silent there, never double-emitting.
+ *
+ *   blocking mode No loop or no fiber: a bounded (100ms) stream_select
+ *                 poll drives the socket and the injected progress
+ *                 callable fires on every slice — with MCP revision
+ *                 2026-07-28 ping removed, those notifications are the
+ *                 only in-call liveness a modern host gets.
+ *
+ * Residual inherent blocks: DNS resolution inside stream_socket_client
+ * and the TLS handshake on implicit ssl:// connects (fractional,
+ * bounded by the connect timeout; openssl stream crypto cannot observe
+ * writability from userland).
+ *
  * @package    MailMCP\Mail
  * @author     Daniel Morante
  * @copyright  2026 The Daniel Morante Company, Inc.
@@ -39,8 +62,20 @@ class SocketImapClient implements ImapClientInterface
 	/** @var float Last successful IMAP activity timestamp (microtime) */
 	private float $lastActivity = 0.0;
 
+	/** @var \Enchilada\Tortilla\EventLoop|null Reactor loop for fiber-parked waits; null = bounded blocking poll */
+	private $loop = null;
+
+	/** @var \Closure|null "Emit progress now": fn(): void (blocking mode only) */
+	private $progress = null;
+
+	/** @var string If-complete bytes read from the socket awaiting parse */
+	private string $readBuffer = '';
+
 	/** Seconds of inactivity before isConnected() probes with NOOP */
 	private const IDLE_PROBE_THRESHOLD = 60;
+
+	/** Poll slice for blocking-mode waits and reactor-mode write probes */
+	private const WAIT_SLICE_USEC = 100000;
 
 	/**
 	 * @param int  $timeout   Socket timeout in seconds
@@ -52,11 +87,25 @@ class SocketImapClient implements ImapClientInterface
 		$this->verifySsl = $verifySsl;
 	}
 
+	/**
+	 * Inject the transport context (composition root wiring).
+	 *
+	 * @param \Enchilada\Tortilla\EventLoop|null $loop     Reactor loop, or null for the bounded-poll regime
+	 * @param callable|null                      $progress fn(): void — emit MCP progress (blocking mode only)
+	 */
+	public function setTransport($loop = null, ?callable $progress = null): void
+	{
+		$this->loop = $loop;
+		$this->progress = $progress !== null ? $progress(...) : null;
+	}
+
 	public function connect(string $host, int $port, bool $tls = true, bool $starttls = true): void
 	{
 		if ($this->socket !== null) {
 			$this->disconnect();
 		}
+
+		$this->readBuffer = '';
 
 		$context = stream_context_create([
 			'ssl' => [
@@ -76,7 +125,7 @@ class SocketImapClient implements ImapClientInterface
 			$errno,
 			$errstr,
 			$this->timeout,
-			STREAM_CLIENT_CONNECT,
+			STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT,
 			$context
 		);
 
@@ -85,7 +134,21 @@ class SocketImapClient implements ImapClientInterface
 			throw new \RuntimeException("IMAP connection failed to {$host}:{$port}: [{$errno}] {$errstr}");
 		}
 
-		stream_set_timeout($this->socket, $this->timeout);
+		// Everything past this point is non-blocking; the connect itself
+		// completes when the socket first reports writable.
+		stream_set_blocking($this->socket, false);
+
+		$deadline = microtime(true) + $this->timeout;
+		if (!$this->waitWritable($deadline)) {
+			$this->disconnect();
+			throw new \RuntimeException("IMAP connection to {$host}:{$port} timed out");
+		}
+
+		// Surface an async-connect refusal as the classic error
+		if (@stream_socket_get_name($this->socket, true) === false || feof($this->socket)) {
+			$this->disconnect();
+			throw new \RuntimeException("IMAP connection failed to {$host}:{$port}: refused or unreachable");
+		}
 
 		// Read server greeting
 		$greeting = $this->readLine();
@@ -399,8 +462,7 @@ class SocketImapClient implements ImapClientInterface
 		}
 
 		// Send the literal message data
-		$this->requireConnection();
-		@fwrite($this->socket, $rawMessage . "\r\n");
+		$this->writeFully($rawMessage . "\r\n");
 
 		// Read tagged response
 		while (true) {
@@ -432,6 +494,7 @@ class SocketImapClient implements ImapClientInterface
 			$this->socket = null;
 			$this->authenticated = false;
 			$this->currentMailbox = null;
+			$this->readBuffer = '';
 		}
 	}
 
@@ -492,10 +555,20 @@ class SocketImapClient implements ImapClientInterface
 			throw new \RuntimeException("STARTTLS failed: {$response['text']}");
 		}
 
-		$result = stream_socket_enable_crypto($this->socket, true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
-
-		if ($result !== true) {
-			throw new \RuntimeException('TLS negotiation failed after STARTTLS');
+		// Non-blocking handshake: 0 = more I/O needed, wait and retry
+		$cryptoMethod = STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
+		$deadline = microtime(true) + $this->timeout;
+		while (true) {
+			$result = stream_socket_enable_crypto($this->socket, true, $cryptoMethod);
+			if ($result === true) {
+				break;
+			}
+			if ($result === false && feof($this->socket)) {
+				throw new \RuntimeException('TLS negotiation failed after STARTTLS');
+			}
+			if (!$this->waitReadable($deadline)) {
+				throw new \RuntimeException('TLS negotiation timed out after STARTTLS');
+			}
 		}
 	}
 
@@ -560,15 +633,45 @@ class SocketImapClient implements ImapClientInterface
 	 */
 	private function writeLine(string $line): void
 	{
+		$this->writeFully($line . "\r\n");
+	}
+
+	/**
+	 * Write all bytes to the non-blocking socket, waiting for
+	 * writability between partial writes (large APPEND literals).
+	 */
+	private function writeFully(string $data): void
+	{
 		$this->requireConnection();
-		$written = @fwrite($this->socket, $line . "\r\n");
-		if ($written === false) {
-			throw new \RuntimeException('Failed to write to IMAP socket');
+		$deadline = microtime(true) + $this->timeout;
+		$offset = 0;
+		$total = strlen($data);
+
+		while ($offset < $total) {
+			$written = @fwrite($this->socket, substr($data, $offset));
+			if ($written === false) {
+				throw new \RuntimeException('Failed to write to IMAP socket');
+			}
+			if ($written > 0) {
+				$offset += $written;
+				continue;
+			}
+			if (feof($this->socket)) {
+				throw new \RuntimeException('Failed to write to IMAP socket');
+			}
+			if (!$this->waitWritable($deadline)) {
+				throw new \RuntimeException('IMAP socket write timed out');
+			}
 		}
 	}
 
 	/**
-	 * Read a single line from the socket.
+	 * Read a single line from the socket (null on clean EOF from the peer).
+	 *
+	 * Consumes the non-blocking read buffer, pumping more bytes via
+	 * waitReadable(). Both outcomes that end the loop before a line
+	 * completes are failures: peer EOF returns null (command() converts
+	 * this to "connection lost"), deadline overrun throws.
 	 */
 	private function readLine(): ?string
 	{
@@ -576,19 +679,21 @@ class SocketImapClient implements ImapClientInterface
 			return null;
 		}
 
-		$line = @fgets($this->socket, 65536);
-		if ($line === false) {
-			if (feof($this->socket)) {
-				return null;
-			}
-			$info = stream_get_meta_data($this->socket);
-			if ($info['timed_out']) {
-				throw new \RuntimeException('IMAP socket read timed out');
-			}
-			return null;
-		}
+		$deadline = microtime(true) + $this->timeout;
 
-		return rtrim($line, "\r\n");
+		while (true) {
+			$nl = strpos($this->readBuffer, "\n");
+			if ($nl !== false) {
+				$line = substr($this->readBuffer, 0, $nl + 1);
+				$this->readBuffer = substr($this->readBuffer, $nl + 1);
+				$this->lastActivity = microtime(true);
+				return rtrim($line, "\r\n");
+			}
+
+			if (!$this->pump($deadline)) {
+				return null; // peer EOF with no complete line buffered
+			}
+		}
 	}
 
 	/**
@@ -596,19 +701,194 @@ class SocketImapClient implements ImapClientInterface
 	 */
 	private function readBytes(int $count): string
 	{
-		$data = '';
-		$remaining = $count;
+		$deadline = microtime(true) + $this->timeout;
 
-		while ($remaining > 0) {
-			$chunk = @fread($this->socket, min($remaining, 65536));
-			if ($chunk === false || $chunk === '') {
-				throw new \RuntimeException("IMAP read error: expected {$count} bytes, got " . strlen($data));
+		while (strlen($this->readBuffer) < $count) {
+			if (!$this->pump($deadline)) {
+				throw new \RuntimeException("IMAP read error: expected {$count} bytes, got " . strlen($this->readBuffer));
 			}
-			$data .= $chunk;
-			$remaining -= strlen($chunk);
 		}
 
+		$data = substr($this->readBuffer, 0, $count);
+		$this->readBuffer = substr($this->readBuffer, $count);
+		$this->lastActivity = microtime(true);
 		return $data;
+	}
+
+	/**
+	 * Pull whatever bytes the socket has into the read buffer, waiting
+	 * (fiber-parked or bounded poll) for readability when it is dry.
+	 *
+	 * @return bool false only on peer EOF; timeout is a RuntimeException
+	 */
+	private function pump(float $deadline): bool
+	{
+		while (true) {
+			$chunk = @fread($this->socket, 65536);
+			if ($chunk !== false && $chunk !== '') {
+				$this->readBuffer .= $chunk;
+				return true;
+			}
+			if (feof($this->socket)) {
+				return false;
+			}
+			if ($chunk === false) {
+				throw new \RuntimeException('IMAP socket read error');
+			}
+			if (!$this->waitReadable($deadline)) {
+				throw new \RuntimeException('IMAP socket read timed out');
+			}
+		}
+	}
+
+	/**
+	 * Wait until the socket is readable (or the deadline passes).
+	 *
+	 * @return bool true when bytes are available; false on deadline
+	 */
+	private function waitReadable(float $deadline): bool
+	{
+		$fiber = \Fiber::getCurrent();
+
+		// Blocking mode: bounded select slices so progress keeps flowing.
+		if ($fiber === null || $this->loop === null) {
+			while (microtime(true) < $deadline) {
+				$read = [$this->socket];
+				$write = $except = null;
+				$ready = @stream_select($read, $write, $except, 0, self::WAIT_SLICE_USEC);
+				if ($ready === false) {
+					return false;
+				}
+				if ($ready > 0) {
+					return true;
+				}
+				$this->emitProgress();
+			}
+			return false;
+		}
+
+		// Reactor mode: park the fiber; a readability watcher or the
+		// deadline watchdog resumes it.
+		$loop = $this->loop;
+		$readable = false;
+		$readId = null;
+		$timerId = null;
+
+		$finish = function (?string $why) use (&$readable, &$readId, &$timerId, $loop, $fiber) {
+			$readable = $why === 'readable';
+			if ($readId !== null) {
+				$loop->cancel($readId);
+				$readId = null;
+			}
+			if ($timerId !== null) {
+				$loop->cancel($timerId);
+				$timerId = null;
+			}
+			if ($fiber->isSuspended()) {
+				$fiber->resume();
+			}
+		};
+
+		$readId = $loop->onReadable($this->socket, function () use ($finish) {
+			$finish('readable');
+		});
+		$remaining = $deadline - microtime(true);
+		$timerId = $loop->delay(max($remaining, 0.01), function () use ($finish) {
+			$finish('timeout');
+		});
+
+		\Fiber::suspend();
+
+		return $readable;
+	}
+
+	/**
+	 * Wait until the socket is writable (or the deadline passes). The
+	 * EventLoop port exposes no writability watcher, so reactor mode
+	 * probes on a short repeat timer between suspends.
+	 *
+	 * @return bool true when writable; false on deadline
+	 */
+	private function waitWritable(float $deadline): bool
+	{
+		$fiber = \Fiber::getCurrent();
+
+		if ($fiber === null || $this->loop === null) {
+			while (microtime(true) < $deadline) {
+				$read = $except = null;
+				$write = [$this->socket];
+				$ready = @stream_select($read, $write, $except, 0, self::WAIT_SLICE_USEC);
+				if ($ready === false) {
+					return false;
+				}
+				if ($ready > 0) {
+					return true;
+				}
+				$this->emitProgress();
+			}
+			return false;
+		}
+
+		// Reactor mode: zero-timeout probe between parked slices — an
+		// in-flight async connect must keep waiting, not read as refused.
+		while (microtime(true) < $deadline) {
+			$read = $except = null;
+			$write = [$this->socket];
+			$ready = @stream_select($read, $write, $except, 0, 0);
+			if ($ready === false) {
+				return false;
+			}
+			if ($ready > 0) {
+				return true;
+			}
+			if (!$this->waitSlice($deadline - microtime(true))) {
+				return false;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Park the current fiber for one bounded slice (reactor mode only).
+	 *
+	 * @return bool true when woken by the timer (i.e. still inside the deadline)
+	 */
+	private function waitSlice(float $seconds): bool
+	{
+		if ($seconds <= 0) {
+			return false;
+		}
+
+		$loop = $this->loop;
+		$fiber = \Fiber::getCurrent();
+		$timerId = $loop->delay(min($seconds, self::WAIT_SLICE_USEC / 1000000), function () use ($loop, &$timerId, $fiber) {
+			if ($timerId !== null) {
+				$loop->cancel($timerId);
+				$timerId = null;
+			}
+			if ($fiber->isSuspended()) {
+				$fiber->resume();
+			}
+		});
+
+		\Fiber::suspend();
+		return true;
+	}
+
+	/**
+	 * Blocking-mode liveness for the in-flight IMAP operation.
+	 * Best-effort — liveness must never break the operation it serves.
+	 */
+	private function emitProgress(): void
+	{
+		if ($this->progress === null) {
+			return;
+		}
+		try {
+			($this->progress)();
+		} catch (\Throwable $e) {
+			// never propagate: see docblock
+		}
 	}
 
 	/**

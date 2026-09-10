@@ -33,6 +33,12 @@ class InstanceManager
 	/** @var array<string,bool> Tracks which instances have been successfully connected */
 	private array $imapConnected = [];
 
+	/** @var \Enchilada\Tortilla\EventLoop|null Reactor loop given to every IMAP client (null = bounded poll) */
+	private $imapLoop = null;
+
+	/** @var \Closure|null Progress emitter given to every IMAP client (blocking mode) */
+	private $imapProgress = null;
+
 	public function __construct(array $instances, string $default)
 	{
 		if (empty($instances)) {
@@ -112,6 +118,9 @@ class InstanceManager
 			$config = $this->getConfig($name);
 			$verifySsl = $config['verify_ssl'] ?? true;
 			$client = new SocketImapClient($config['timeout'] ?? 30, $verifySsl);
+			if ($this->imapLoop !== null || $this->imapProgress !== null) {
+				$client->setTransport($this->imapLoop, $this->imapProgress);
+			}
 			$this->imapClients[$name] = $client;
 			return $client;
 		}
@@ -124,6 +133,23 @@ class InstanceManager
 		}
 
 		return $this->imapClients[$name];
+	}
+
+	/**
+	 * Inject the transport context into every IMAP client (current and
+	 * future). Called once by the composition root before tools run.
+	 *
+	 * @param \Enchilada\Tortilla\EventLoop|null $loop     Reactor loop, or null for the bounded-poll regime
+	 * @param callable|null                      $progress fn(): void — emit MCP progress (blocking mode only)
+	 */
+	public function setImapTransport($loop = null, ?callable $progress = null): void
+	{
+		$this->imapLoop = $loop;
+		$this->imapProgress = $progress !== null ? $progress(...) : null;
+
+		foreach ($this->imapClients as $client) {
+			$client->setTransport($loop, $progress);
+		}
 	}
 
 	/**

@@ -2,6 +2,12 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [Unreleased]
+
+### Changed
+- IMAP socket I/O is now event-driven (`SocketImapClient`): the socket is permanently non-blocking after connect, all reads run through a buffered pump, and writes complete via a writability wait (large APPEND literals included). `setTransport($loop, $progress)` (wired from `bin/mail-mcp` via `InstanceManager::setImapTransport()`) picks the wait regime per call: with the reactor loop and dispatch fibers, network waits park the fiber so pings keep being answered mid-call; otherwise a bounded 100 ms poll emits progress notifications each slice (the only in-call liveness a modern MCP host gets). STARTTLS handshake and async TCP connect ride the same wait machinery. Residual inherent blocks: DNS resolution and the implicit-TLS handshake (bounded by the connect timeout)
+- New functional I/O test (`SocketImapClientIoTest`) pins the non-blocking engine against an in-process fake IMAP server: split lines, slow responses with progress emission, literals, and peer-drop EOF
+
 ## [1.3.1] - 2026-09-10
 
 ### Changed
