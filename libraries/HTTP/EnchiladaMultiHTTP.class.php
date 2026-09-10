@@ -109,6 +109,25 @@ class EnchiladaMultiHTTP {
 	}
 
 	/**
+	 * Sets the HTTP Basic Authentication credentials.
+	 *
+	 * @param string $username
+	 * @param string $password
+	 */
+	public function setPlaintextAuth($username, $password) {
+		$this->plaintext_auth = $username . ':' . $password;
+	}
+
+	/**
+	 * Sets the CA certificate bundle path for SSL verification.
+	 *
+	 * @param string $path Path to CA certificate file
+	 */
+	public function setCaCert($path) {
+		$this->ca_cert = $path;
+	}
+
+	/**
 	 * Queue a new HTTP request.
 	 *
 	 * @param string     $method       API method/path appended to base endpoint.
