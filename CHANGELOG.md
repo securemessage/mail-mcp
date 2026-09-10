@@ -5,6 +5,7 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 ## [Unreleased]
 
 ### Changed
+- Re-vendored `OAuthCallbackServer` from Enchilada/Extras master (#49): `handleConnection()` is now fully non-blocking (0-timeout accept loop, per-connection buffered reads, 30s idle reap, 64KB request cap). The authorization-callback listener registered on the transport's event loop can no longer stall the MCP channel when an SSH-forwarded request trickles in
 - IMAP socket I/O is now event-driven (`SocketImapClient`): the socket is permanently non-blocking after connect, all reads run through a buffered pump, and writes complete via a writability wait (large APPEND literals included). `setTransport($loop, $progress)` (wired from `bin/mail-mcp` via `InstanceManager::setImapTransport()`) picks the wait regime per call: with the reactor loop and dispatch fibers, network waits park the fiber so pings keep being answered mid-call; otherwise a bounded 100 ms poll emits progress notifications each slice (the only in-call liveness a modern MCP host gets). STARTTLS handshake and async TCP connect ride the same wait machinery. Residual inherent blocks: DNS resolution and the implicit-TLS handshake (bounded by the connect timeout)
 - New functional I/O test (`SocketImapClientIoTest`) pins the non-blocking engine against an in-process fake IMAP server: split lines, slow responses with progress emission, literals, and peer-drop EOF
 
