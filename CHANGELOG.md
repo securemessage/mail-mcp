@@ -2,6 +2,11 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [Unreleased]
+
+### Changed
+- Vendored HTTP library layout moved from `libraries/HTTP/` to eponymous directories (`libraries/EnchiladaHTTP/`, `libraries/EnchiladaMultiHTTP/`), which the framework autoloader resolves natively for legacy global classes — the guarded `require_once` in `Mail\OAuthManager` is gone
+
 ## [1.3.0] - 2026-09-09
 
 ### Changed
