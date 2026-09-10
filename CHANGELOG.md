@@ -5,6 +5,7 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 ## [Unreleased]
 
 ### Changed
+- OAuth token exchange/refresh HTTP moved from the blocking `\EnchiladaHTTP` to the loop-aware pipeline (`Enchilada\Tortilla\Oauth3LOClient` over `HttpClient` over `EnchiladaMultiHTTP`), enabled by the Extras OAuth/ split (`Oauth3LO` pure protocol core). Loop/progress wiring: `bin/mail-mcp` → `ConnectionTools::setHttpTransport()` → `OAuthManager::setHttpTransport()`. Token semantics and file format unchanged (the legacy `EnchiladaOauth3LOClient` remains vendored as a backwards-compatible wrapper)
 - Vendored HTTP library layout moved from `libraries/HTTP/` to eponymous directories (`libraries/EnchiladaHTTP/`, `libraries/EnchiladaMultiHTTP/`), which the framework autoloader resolves natively for legacy global classes — the guarded `require_once` in `Mail\OAuthManager` is gone
 
 ## [1.3.0] - 2026-09-09

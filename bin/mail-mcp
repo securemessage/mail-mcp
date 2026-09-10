@@ -142,6 +142,8 @@ $server->setNotifier($transport->sendNotification(...));
 // Inject transport into tools that need it (for non-blocking OAuth, notifications)
 if (isset($toolInstances['ConnectionTools']) && method_exists($toolInstances['ConnectionTools'], 'setTransport')) {
 	$toolInstances['ConnectionTools']->setTransport($transport);
+	// OAuth token HTTP rides the same loop/progress context as the transport
+	$toolInstances['ConnectionTools']->setHttpTransport($loop, $server->tick(...));
 }
 
 $transport->run();

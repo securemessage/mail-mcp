@@ -15,7 +15,6 @@
 
 namespace Mail;
 
-use EnchiladaOAuth\EnchiladaOauth3LOClient;
 use EnchiladaOAuth\OAuthCallbackServer;
 
 class OAuthManager
@@ -23,11 +22,17 @@ class OAuthManager
 	/** @var string Directory where token files are stored */
 	private string $tokenDir;
 
-	/** @var array<string,EnchiladaOauth3LOClient> Cached OAuth clients per instance */
+	/** @var array<string,\Enchilada\Tortilla\Oauth3LOClient> Cached OAuth clients per instance */
 	private array $oauthClients = [];
 
 	/** @var callable|null Logger function */
 	private $logger;
+
+	/** @var \Enchilada\Tortilla\EventLoop|null Loop for token-HTTP waits (null = blocking) */
+	private ?\Enchilada\Tortilla\EventLoop $loop = null;
+
+	/** @var \Closure|null Progress emitter for blocking-mode token waits */
+	private ?\Closure $progress = null;
 
 	public function __construct(?string $tokenDir = null, ?callable $logger = null)
 	{
@@ -45,6 +50,18 @@ class OAuthManager
 	}
 
 	/**
+	 * Provide the HTTP transport context for subsequently built OAuth
+	 * clients: the event loop the stdio transport runs on (token calls
+	 * fiber-park on it under reactor I/O) and the server's progress
+	 * emitter (blocking-mode polls keep notifications flowing).
+	 */
+	public function setHttpTransport(?\Enchilada\Tortilla\EventLoop $loop, ?callable $progress): void
+	{
+		$this->loop = $loop;
+		$this->progress = $progress !== null ? $progress(...) : null;
+	}
+
+	/**
 	 * Get the token file path for an instance.
 	 */
 	public function getTokenFile(string $instanceName): string
@@ -55,24 +72,27 @@ class OAuthManager
 	/**
 	 * Get or create the OAuth client for an instance.
 	 *
+	 * Token exchange/refresh HTTP goes through Tortilla's loop-aware
+	 * pipeline (Oauth3LOClient over HttpClient over EnchiladaMultiHTTP).
+	 *
 	 * @param string $instanceName Instance name
 	 * @param array  $config       Instance configuration (must have oauth_* keys)
-	 * @return EnchiladaOauth3LOClient
+	 * @return \Enchilada\Tortilla\Oauth3LOClient
 	 */
-	public function getOAuthClient(string $instanceName, array $config): EnchiladaOauth3LOClient
+	public function getOAuthClient(string $instanceName, array $config): \Enchilada\Tortilla\Oauth3LOClient
 	{
 		if (!isset($this->oauthClients[$instanceName])) {
 			$tokenUrl = $config['oauth_token_url']
 				?? throw new \RuntimeException("Missing oauth_token_url for instance '{$instanceName}'");
 
-			// EnchiladaHTTP needs a base URL — use the token endpoint's origin
+			// The HTTP client needs a base URL — use the token endpoint's origin
 			$parsed = parse_url($tokenUrl);
 			$baseUrl = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? '') .
 				(isset($parsed['port']) ? ':' . $parsed['port'] : '');
 
-			$http = new \EnchiladaHTTP($baseUrl);
+			$http = new \Enchilada\Tortilla\HttpClient(new \EnchiladaMultiHTTP($baseUrl), $this->loop, $this->progress);
 
-			$client = new EnchiladaOauth3LOClient(
+			$client = new \Enchilada\Tortilla\Oauth3LOClient(
 				$http,
 				$config['oauth_authorize_url'] ?? '',
 				$tokenUrl,
@@ -131,8 +151,8 @@ class OAuthManager
 		$client = $this->getOAuthClient($instanceName, $config);
 
 		// Generate PKCE pair
-		$codeVerifier = EnchiladaOauth3LOClient::generateCodeVerifier();
-		$codeChallenge = EnchiladaOauth3LOClient::generateCodeChallenge($codeVerifier);
+		$codeVerifier = \EnchiladaOAuth\Oauth3LO::generateCodeVerifier();
+		$codeChallenge = \EnchiladaOAuth\Oauth3LO::generateCodeChallenge($codeVerifier);
 
 		// Generate state for CSRF protection
 		$state = bin2hex(random_bytes(16));
@@ -205,8 +225,8 @@ class OAuthManager
 	{
 		$client = $this->getOAuthClient($instanceName, $config);
 
-		$codeVerifier = EnchiladaOauth3LOClient::generateCodeVerifier();
-		$codeChallenge = EnchiladaOauth3LOClient::generateCodeChallenge($codeVerifier);
+		$codeVerifier = \EnchiladaOAuth\Oauth3LO::generateCodeVerifier();
+		$codeChallenge = \EnchiladaOAuth\Oauth3LO::generateCodeChallenge($codeVerifier);
 		$state = bin2hex(random_bytes(16));
 
 		$callbackServer = new OAuthCallbackServer('', $state);

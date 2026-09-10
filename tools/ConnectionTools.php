@@ -10,7 +10,6 @@
 
 use EnchiladaMCP\McpTool;
 use Enchilada\Tortilla\StdioTransport;
-use EnchiladaOAuth\EnchiladaOauth3LOClient;
 use EnchiladaOAuth\OAuthCallbackServer;
 use Mail\InstanceManager;
 use Mail\OAuthManager;
@@ -35,6 +34,16 @@ class ConnectionTools
 	public function setTransport(StdioTransport $transport): void
 	{
 		$this->transport = $transport;
+	}
+
+	/**
+	 * Propagate the HTTP transport context (event loop + progress
+	 * emitter) to the OAuth clients the OAuthManager builds, so token
+	 * exchange/refresh HTTP waits inherit the transport's wait regime.
+	 */
+	public function setHttpTransport(?\Enchilada\Tortilla\EventLoop $loop, ?callable $progress): void
+	{
+		$this->oauth->setHttpTransport($loop, $progress);
 	}
 
 	/**
@@ -171,8 +180,8 @@ class ConnectionTools
 		$oauthClient = $this->oauth->getOAuthClient($instanceName, $config);
 
 		// Generate PKCE pair
-		$codeVerifier = EnchiladaOauth3LOClient::generateCodeVerifier();
-		$codeChallenge = EnchiladaOauth3LOClient::generateCodeChallenge($codeVerifier);
+		$codeVerifier = \EnchiladaOAuth\Oauth3LO::generateCodeVerifier();
+		$codeChallenge = \EnchiladaOAuth\Oauth3LO::generateCodeChallenge($codeVerifier);
 
 		// Generate state for CSRF protection
 		$state = bin2hex(random_bytes(16));
