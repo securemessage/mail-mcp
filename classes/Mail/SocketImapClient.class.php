@@ -831,7 +831,23 @@ class SocketImapClient implements ImapClientInterface
 			return false;
 		}
 
-		return $this->waitSlice($deadline - microtime(true));
+		// Reactor mode: zero-timeout probe between parked slices — an
+		// in-flight async connect must keep waiting, not read as refused.
+		while (microtime(true) < $deadline) {
+			$read = $except = null;
+			$write = [$this->socket];
+			$ready = @stream_select($read, $write, $except, 0, 0);
+			if ($ready === false) {
+				return false;
+			}
+			if ($ready > 0) {
+				return true;
+			}
+			if (!$this->waitSlice($deadline - microtime(true))) {
+				return false;
+			}
+		}
+		return false;
 	}
 
 	/**
