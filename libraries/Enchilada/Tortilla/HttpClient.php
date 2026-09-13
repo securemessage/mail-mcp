@@ -79,6 +79,9 @@ class HttpClient
 	/** @var string cURL error text of the most recent call ('' = none) */
 	private string $lastCurlError = '';
 
+	/** @var array Response headers of the most recent call (lowercase name => list of values) */
+	private array $lastResponseHeaders = [];
+
 	/**
 	 * @param \EnchiladaMultiHTTP $multi    The multi client to drive
 	 *                                      (subclassed API clients are
@@ -121,6 +124,7 @@ class HttpClient
 		$this->lastCurlError = $outcome['curl_error'] !== ''
 			? $outcome['curl_error']
 			: ($outcome['error'] ?? '');
+		$this->lastResponseHeaders = $outcome['headers'] ?? [];
 
 		return $outcome['result'];
 	}
@@ -141,6 +145,16 @@ class HttpClient
 	public function getLastCurlError(): string
 	{
 		return $this->lastCurlError;
+	}
+
+	/**
+	 * Response headers of the most recent call (lowercase name => list
+	 * of values; repeated headers such as Set-Cookie are never merged).
+	 * Empty when the engine predates response-header capture.
+	 */
+	public function getLastResponseHeaders(): array
+	{
+		return $this->lastResponseHeaders;
 	}
 
 	/**

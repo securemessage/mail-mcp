@@ -24,7 +24,7 @@ namespace Enchilada\Tortilla;
  * Comal at all.
  *
  * Usage:
- *   $mcpServer = new EnchiladaMCP\McpServer('sonya', '1.0.0');
+ *   $mcpServer = new EnchiladaMCP\McpServer('myserver', '1.0.0');
  *   $mcpServer->register($myTools);
  *
  *   $transport = new EmbeddedHttpTransport(

@@ -43,12 +43,17 @@ class EnchiladaMultiHTTP {
 	 *   'http_code'   => int,    HTTP status code (0 until the transfer completes)
 	 *   'curl_errno'  => int,    CURLE_* value (0 on success)
 	 *   'curl_error'  => string, curl error message ('' on success)
+	 *   'headers'     => array,  response headers of the final HTTP block,
+	 *                            lowercase name => list of values
 	 * ]
 	 */
 	protected $requests = array();
 
 	/** @var int */
 	protected $nextRequestId = 1;
+
+	/** @var array Response headers of the most recently completed request */
+	protected $last_response_headers = array();
 
 	/**
 	 * Create a new instance.
@@ -206,6 +211,7 @@ class EnchiladaMultiHTTP {
 				'http_code' => 0,
 				'curl_errno' => 0,
 				'curl_error' => '',
+				'headers' => array(),
 			);
 			$curlOptions[CURLOPT_RETURNTRANSFER] = false;
 			$curlOptions[CURLOPT_WRITEFUNCTION] =
@@ -283,8 +289,6 @@ class EnchiladaMultiHTTP {
 			curl_setopt($handle, CURLOPT_USERPWD, $this->plaintext_auth);
 		}
 
-		curl_multi_add_handle($this->multiHandle, $handle);
-
 		// Non-streaming requests are registered here; streaming ones were
 		// registered above so the write callback had a slot to append into.
 		if (!isset($this->requests[$requestId])) {
@@ -299,8 +303,21 @@ class EnchiladaMultiHTTP {
 				'http_code' => 0,
 				'curl_errno' => 0,
 				'curl_error' => '',
+				'headers' => array(),
 			);
 		}
+
+		// Capture response headers into the request slot. CURLOPT_FOLLOWLOCATION
+		// replays one header block per hop; a new "HTTP/" status line resets the
+		// block so only the final response's headers are kept.
+		curl_setopt($handle, CURLOPT_HEADERFUNCTION,
+			function ($ch, string $line) use ($requestId) {
+				$this->requests[$requestId]['headers'] =
+					self::parseHeaderLine($this->requests[$requestId]['headers'], $line);
+				return strlen($line);
+			});
+
+		curl_multi_add_handle($this->multiHandle, $handle);
 
 		return $requestId;
 	}
@@ -350,6 +367,7 @@ class EnchiladaMultiHTTP {
 			$this->requests[$requestId]['http_code'] = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
 			$this->requests[$requestId]['curl_errno'] = (int) $info['result'];
 			$this->requests[$requestId]['curl_error'] = (string) curl_error($handle);
+			$this->last_response_headers = $req['headers'] ?? array();
 
 			// A short write-callback return (our [DONE] early-completion)
 			// surfaces as CURLE_WRITE_ERROR (23); that is success, not failure.
@@ -365,7 +383,20 @@ class EnchiladaMultiHTTP {
 			} else {
 				$baseFormat = strtok($req['format'], ',');
 				if ($baseFormat === 'json' && !$req['sseDone'] && !str_contains($req['format'], 'sse')) {
-					$this->requests[$requestId]['result'] = $raw ? json_decode($raw, true) : false;
+					$decoded = $raw ? json_decode($raw, true) : false;
+					if ($decoded === null) {
+						// Un-decodable body (a proxy/gateway error page,
+						// truncated JSON, ...): the request IS finished —
+						// leaving result=null would make getResult() report
+						// "still in flight" forever and any poll-driven
+						// waiter would spin for the process lifetime.
+						$this->requests[$requestId]['result'] = false;
+						$this->requests[$requestId]['error'] = 'Invalid JSON in response body ('
+							. json_last_error_msg() . ', HTTP '
+							. $this->requests[$requestId]['http_code'] . ')';
+					} else {
+						$this->requests[$requestId]['result'] = $decoded;
+					}
 				} else {
 					// raw, or an SSE body: the caller parses frames itself
 					// (event-stream is not a single JSON document).
@@ -422,7 +453,44 @@ class EnchiladaMultiHTTP {
 			'http_code' => $req['http_code'],
 			'curl_errno' => $req['curl_errno'],
 			'curl_error' => $req['curl_error'],
+			'headers' => $req['headers'] ?? array(),
 		);
+	}
+
+	/**
+	 * Response headers of the most recently completed request.
+	 *
+	 * @return array lowercase header name => list of values
+	 */
+	public function getLastResponseHeaders(): array {
+		return $this->last_response_headers;
+	}
+
+	/**
+	 * Parse one raw header line into the name => list-of-values map.
+	 * A new "HTTP/" status line (redirect hop) resets the block; the
+	 * status line itself and blank lines are dropped. Repeated headers
+	 * (e.g. Set-Cookie) accumulate as list entries — never merged.
+	 *
+	 * @param array  $headers Current header map
+	 * @param string $line    Raw line as passed to CURLOPT_HEADERFUNCTION
+	 * @return array Updated header map
+	 */
+	protected static function parseHeaderLine(array $headers, string $line): array {
+		$line = rtrim($line, "\r\n");
+		if ($line === '') {
+			return $headers;
+		}
+		if (stripos($line, 'HTTP/') === 0) {
+			return array();
+		}
+		$colon = strpos($line, ':');
+		if ($colon === false) {
+			return $headers;
+		}
+		$name = strtolower(trim(substr($line, 0, $colon)));
+		$headers[$name][] = trim(substr($line, $colon + 1));
+		return $headers;
 	}
 
 	/**
