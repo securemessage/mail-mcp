@@ -10,7 +10,17 @@
  *   php bin/mail-mcp
  *
  * Environment:
- *   MAIL_MCP_CONFIG  Path to instances.json configuration file
+ *   MAIL_MCP_CONFIG      Path to instances.json configuration file
+ *   MAIL_MCP_LOG         Path to a log file (enables durable file logging)
+ *   MAIL_MCP_LOG_LEVEL   debug|info|error (default: debug when a log file is set)
+ *   MAIL_MCP_LOG_STDERR  Mirror log lines to STDERR (default: off; set to 1 to enable)
+ *   MAIL_MCP_IO_MODE     auto|reactor|blocking (default: auto)
+ *
+ * CLI flags:
+ *   --config=PATH      Path to instances.json
+ *   --log=PATH         Log file path (overrides MAIL_MCP_LOG)
+ *   --log-level=LEVEL  debug|info|error
+ *   --io-mode=MODE     auto|reactor|blocking (transport I/O strategy)
  *
  * @package    MailMCP
  * @author     Daniel Morante
@@ -38,6 +48,7 @@ if (!empty($missing)) {
 	exit(1);
 }
 
+use EnchiladaMCP\Logger;
 use EnchiladaMCP\McpServer;
 use Enchilada\Tortilla\ComalEventLoop;
 use Enchilada\Tortilla\StdioTransport;
@@ -46,13 +57,35 @@ use Mail\InstanceManager;
 // --- Configuration ---
 
 $configPath = getenv('MAIL_MCP_CONFIG') ?: null;
+$logPath = getenv('MAIL_MCP_LOG') ?: null;
+$logLevel = getenv('MAIL_MCP_LOG_LEVEL') ?: 'debug';
+// Stderr mirroring is opt-in. stdout is the protocol channel and stderr
+// is only as reliable as the host's willingness to drain it: a host that
+// captures stderr and never reads it will fill the pipe and stall the
+// server (observed on Windows, where the stream cannot be made
+// non-blocking). The log file is the durable diagnostic channel.
+$stderrEnv = getenv('MAIL_MCP_LOG_STDERR');
+$logStderr = ($stderrEnv === false) ? false : (bool)$stderrEnv;
+$ioMode = getenv('MAIL_MCP_IO_MODE') ?: null;
 
-// Check CLI argument: --config=/path/to/instances.json
+// Check CLI arguments: --config=/path/to/instances.json, --log=/path/to/file, --log-level=debug
 foreach ($argv ?? [] as $arg) {
 	if (str_starts_with($arg, '--config=')) {
 		$configPath = substr($arg, 9);
 	}
+	if (str_starts_with($arg, '--log=')) {
+		$logPath = substr($arg, 6);
+	}
+	if (str_starts_with($arg, '--log-level=')) {
+		$logLevel = substr($arg, 12);
+	}
+	if (str_starts_with($arg, '--io-mode=')) {
+		$ioMode = substr($arg, 10);
+	}
 }
+
+$logLevelValue = Logger::levelFromString($logLevel) ?? Logger::LEVEL_DEBUG;
+$logger = new Logger($logPath, $logLevelValue, $logStderr, APPLICATION_SLUG);
 
 // Default config location
 if ($configPath === null) {
@@ -78,24 +111,29 @@ if ($configPath === null || !file_exists($configPath)) {
 
 // --- Bootstrap ---
 
-function debug(string $message): void
-{
-	fwrite(STDERR, "[mail-mcp] " . $message . "\n");
+if ($logPath !== null && @file_put_contents($logPath, '', FILE_APPEND) === false) {
+	fwrite(STDERR, "[mail-mcp] WARNING: Log file not writable: {$logPath}\n");
+	$logger = new Logger(null, $logLevelValue, $logStderr, APPLICATION_SLUG);
 }
+
+$logger->info(APPLICATION_NAME . ' ' . APPLICATION_VERSION . " starting (pid " . getmypid() . ", php " . PHP_VERSION . ')');
+$logger->info("Log file: " . ($logPath ?? '(disabled — set MAIL_MCP_LOG to enable)'));
 
 try {
 	$manager = InstanceManager::fromFile($configPath);
 } catch (\Exception $e) {
 	fwrite(STDERR, "[mail-mcp] ERROR: " . $e->getMessage() . "\n");
+	$logger->error('Configuration load failed: ' . $e->getMessage());
 	exit(1);
 }
 
 $instanceCount = $manager->count();
-debug("Loaded {$instanceCount} instance(s) from {$configPath} (default: {$manager->getDefault()})");
+$logger->info("Loaded {$instanceCount} instance(s) from {$configPath} (default: {$manager->getDefault()})");
 
 // --- Create MCP Server ---
 
 $server = new McpServer(APPLICATION_SLUG, APPLICATION_VERSION);
+$server->setLogger($logger);
 
 // Load instructions
 $instructionsFile = APPLICATION_CONFDIR . 'instructions.txt';
@@ -115,12 +153,12 @@ if (is_dir($toolDir)) {
 			$instance = new $className($manager);
 			$server->register($instance);
 			$toolInstances[$className] = $instance;
-			debug("Registered tools: {$className}");
+			$logger->debug("Registered tools: {$className}");
 		}
 	}
 }
 
-debug("MCP server started (stdio transport)");
+$logger->info("MCP server started (stdio transport)");
 
 // --- Run ---
 
@@ -133,11 +171,23 @@ $loop = ComalEventLoop::create();
 // Primitives in (handler, progress emitter), notifier back out —
 // only the composition root knows both sides of the contract.
 $transport = new StdioTransport($server->handleRequest(...), $server->tick(...));
-$transport->setLogger('debug');
+$transport->setLogger($logger);
 if ($loop !== null) {
 	$transport->setLoop($loop);      // opts into reactor I/O
 }
 $server->setNotifier($transport->sendNotification(...));
+
+// I/O mode override. 'auto' (the default) uses the Comal reactor on
+// POSIX and blocking reads on Windows, where an anonymous stdin pipe
+// cannot be polled. Override only when diagnosing transport behaviour.
+if ($ioMode !== null) {
+	try {
+		$transport->setIoMode($ioMode);
+	} catch (\InvalidArgumentException $e) {
+		fwrite(STDERR, "[mail-mcp] ERROR: " . $e->getMessage() . "\n");
+		exit(1);
+	}
+}
 
 // Inject transport into tools that need it (for non-blocking OAuth, notifications)
 if (isset($toolInstances['ConnectionTools']) && method_exists($toolInstances['ConnectionTools'], 'setTransport')) {
@@ -155,4 +205,4 @@ if (method_exists($manager, 'setImapTransport')) {
 
 $transport->run();
 
-debug("MCP server stopped");
+$logger->info("MCP server stopped");
