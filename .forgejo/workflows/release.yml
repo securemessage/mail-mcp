@@ -14,7 +14,7 @@ jobs:
           git clone --depth=1 --branch ${{ github.ref_name }} ${{ github.server_url }}/${{ github.repository }}.git .
 
       - name: Install dependencies
-        run: doas pkg install -y phpunit11-php84
+        run: doas pkg install -y phpunit11-php84 php84-pcntl
 
       - name: Run tests
         run: phpunit
