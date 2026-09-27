@@ -31,19 +31,19 @@ class DraftTools
 	 */
 	#[McpTool(
 		name: 'mail_create_draft',
-		description: 'Create a draft email that can be reviewed before sending. The draft is saved to the Drafts folder via IMAP and can be edited in any mail client. Supports text, HTML, CC/BCC, and file attachments. Warns if the body mentions an attachment but none were included.',
+		description: 'Save a draft to the IMAP Drafts folder for review before sending. Requires an IMAP connection. Warns if the body mentions an attachment but none is attached.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'to' => ['type' => 'string', 'description' => 'Recipient email address(es), comma-separated'],
-				'subject' => ['type' => 'string', 'description' => 'Email subject'],
-				'text' => ['type' => 'string', 'description' => 'Plain text email body'],
-				'html' => ['type' => 'string', 'description' => 'HTML email body (optional, creates multipart if both text and html provided)'],
-				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional)'],
-				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
-				'in_reply_to' => ['type' => 'integer', 'description' => 'UID of message this is a reply to (optional, sets In-Reply-To and Re: subject)'],
-				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'to' => ['type' => 'string', 'description' => 'Comma-separated addresses'],
+				'subject' => ['type' => 'string'],
+				'text' => ['type' => 'string', 'description' => 'Plain-text body'],
+				'html' => ['type' => 'string', 'description' => 'HTML body; with text, sends multipart'],
+				'cc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'in_reply_to' => ['type' => 'integer', 'description' => 'UID of the message being replied to; sets In-Reply-To and Re: subject'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['to', 'subject'],
 		]
@@ -182,20 +182,20 @@ class DraftTools
 	 */
 	#[McpTool(
 		name: 'mail_update_draft',
-		description: 'Modify an existing draft in the Drafts folder. Only provided fields replace the draft\'s current values; omitted fields are preserved (including threading headers and existing attachments, unless attachments is given). Warns if the resulting draft mentions an attachment but has none.',
+		description: 'Edit a draft in the Drafts folder. Each given field replaces its current value; omitted fields (incl. threading headers and attachments) are kept. Warns if the result mentions an attachment but has none.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'UID of the draft message to update'],
-				'to' => ['type' => 'string', 'description' => 'Recipient email address(es), comma-separated (optional, replaces existing To)'],
-				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional, replaces existing CC)'],
-				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional, replaces existing BCC)'],
-				'subject' => ['type' => 'string', 'description' => 'Email subject (optional, replaces existing subject)'],
-				'text' => ['type' => 'string', 'description' => 'Plain text body (optional, replaces existing text body)'],
-				'html' => ['type' => 'string', 'description' => 'HTML body (optional, replaces existing HTML body)'],
-				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional, replaces ALL existing attachments)'],
-				'add_attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to append without replacing existing attachments (optional)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer', 'description' => 'Draft UID'],
+				'to' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'cc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'subject' => ['type' => 'string'],
+				'text' => ['type' => 'string', 'description' => 'Plain-text body'],
+				'html' => ['type' => 'string', 'description' => 'HTML body'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths; replaces ALL existing attachments'],
+				'add_attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths appended to existing attachments'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]

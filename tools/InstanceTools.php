@@ -26,7 +26,7 @@ class InstanceTools
 	#[McpTool(
 		name: 'mail_list_instances',
 		readOnlyHint: true,
-		description: 'List all configured mail accounts. Shows connection status, auth type, and which is the default.'
+		description: 'List configured mail accounts with connection status, auth type and the default.'
 	)]
 	public function mail_list_instances(): array
 	{
@@ -41,11 +41,11 @@ class InstanceTools
 	 */
 	#[McpTool(
 		name: 'mail_switch_instance',
-		description: 'Switch the active default mail account. All subsequent tool calls without an explicit instance parameter will use this account.',
+		description: 'Set the default account used by later calls that omit instance.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'Name of the instance to set as default'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['instance'],
 		]

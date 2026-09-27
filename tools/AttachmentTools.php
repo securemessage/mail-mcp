@@ -26,12 +26,12 @@ class AttachmentTools
 	#[McpTool(
 		name: 'mail_get_attachments',
 		readOnlyHint: true,
-		description: 'List attachment metadata (filename, type, size) for a message. Does not download the attachment content.',
+		description: 'List a message\'s attachments (part number, filename, type, size) without downloading them.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]
@@ -54,15 +54,15 @@ class AttachmentTools
 	 */
 	#[McpTool(
 		name: 'mail_save_attachment',
-		description: 'Download an attachment. Save it to a local file path and/or return its content as base64. Use mail_get_attachments first to see available attachments and their part numbers.',
+		description: 'Download an attachment to save_path and/or return it base64-encoded (at least one required). Get part_number from mail_get_attachments.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID'],
-				'part_number' => ['type' => 'string', 'description' => 'MIME part number (from mail_get_attachments)'],
-				'save_path' => ['type' => 'string', 'description' => 'Absolute path where to save the file (optional if return_content is true)'],
-				'return_content' => ['type' => 'boolean', 'description' => 'Return base64-encoded attachment content in response (default: false)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer'],
+				'part_number' => ['type' => 'string', 'description' => 'MIME part number'],
+				'save_path' => ['type' => 'string', 'description' => 'Absolute local path'],
+				'return_content' => ['type' => 'boolean', 'description' => 'Include base64 content in the response (default false)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid', 'part_number'],
 		]

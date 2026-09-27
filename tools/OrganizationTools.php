@@ -27,14 +27,14 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_move_message',
-		description: 'Move a message from one folder to another. Uses IMAP COPY + DELETE. Use mail_list_mailboxes to see available folders.',
+		description: 'Move a message to another folder (IMAP COPY + delete). Folder names come from mail_list_mailboxes.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID to move'],
-				'target_folder' => ['type' => 'string', 'description' => 'Destination folder name (e.g., "Archive", "Work", "Trash")'],
-				'source_folder' => ['type' => 'string', 'description' => 'Source folder (default: INBOX)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer'],
+				'target_folder' => ['type' => 'string', 'description' => 'e.g. "Archive", "Trash"'],
+				'source_folder' => ['type' => 'string', 'description' => 'default INBOX'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid', 'target_folder'],
 		]
@@ -66,15 +66,15 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_set_flags',
-		description: 'Add or remove IMAP flags on one or more messages. Standard flags: \Seen (read), \Flagged (starred), \Answered (replied), \Draft, \Deleted. Also supports user-defined keywords like $Important, $Work, etc. Use mail_open_mailbox to see available flags.',
+		description: 'Add/remove flags on messages: \Seen, \Flagged, \Answered, \Draft, \Deleted, or keywords like $Important (mail_open_mailbox lists those available).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Message UIDs to modify'],
-				'add_flags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Flags to add (e.g., ["\\Flagged", "$Important"])'],
-				'remove_flags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Flags to remove (e.g., ["\\Seen"])'],
-				'mailbox' => ['type' => 'string', 'description' => 'Mailbox containing the messages (default: INBOX)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+				'add_flags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'e.g. ["\\Flagged", "$Important"]'],
+				'remove_flags' => ['type' => 'array', 'items' => ['type' => 'string']],
+				'mailbox' => ['type' => 'string', 'description' => 'Mailbox holding the messages (default INBOX)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
 		]
@@ -122,12 +122,12 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_create_mailbox',
-		description: 'Create a new mailbox (folder) on the mail server. Useful for organizing emails into custom folders before using mail_move_message.',
+		description: 'Create a mailbox (folder).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'name' => ['type' => 'string', 'description' => 'New mailbox name (e.g., "Archive", "Work/Projects")'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'name' => ['type' => 'string', 'description' => 'e.g. "Archive" or "Work/Projects"'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['name'],
 		]

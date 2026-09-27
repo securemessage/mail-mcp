@@ -26,11 +26,11 @@ class MailboxTools
 	#[McpTool(
 		name: 'mail_list_mailboxes',
 		readOnlyHint: true,
-		description: 'List all available mailboxes (folders) on the mail server. Requires an active IMAP connection.',
+		description: 'List mailboxes (folders). Requires an IMAP connection.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 		]
 	)]
@@ -51,13 +51,13 @@ class MailboxTools
 	#[McpTool(
 		name: 'mail_open_mailbox',
 		readOnlyHint: true,
-		description: 'Open a mailbox (folder) for reading. Returns message counts and status. Defaults to INBOX.',
+		description: 'Select a mailbox for subsequent message operations; returns counts, status and available flags.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'mailbox' => ['type' => 'string', 'description' => 'Mailbox name (default: INBOX)'],
-				'read_only' => ['type' => 'boolean', 'description' => 'Open in read-only mode (default: false)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'mailbox' => ['type' => 'string', 'description' => 'default INBOX'],
+				'read_only' => ['type' => 'boolean', 'description' => 'default false'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 		]
 	)]

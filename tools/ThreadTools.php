@@ -28,12 +28,12 @@ class ThreadTools
 	#[McpTool(
 		name: 'mail_get_thread',
 		readOnlyHint: true,
-		description: 'Retrieve a full email conversation thread given any message UID within it. Finds all related messages by matching Message-ID, In-Reply-To, and References headers. Returns messages sorted oldest-first (chronological).',
+		description: 'Get the whole conversation containing a message (matched via Message-ID, In-Reply-To, References), oldest first.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'UID of any message in the thread'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer', 'description' => 'Any message in the thread'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]
