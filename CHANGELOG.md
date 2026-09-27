@@ -2,14 +2,27 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
-## [Unreleased]
+## [1.3.4] - 2026-09-27
 
 ### Changed
 - Every tool definition is now self-contained: tools that need a session say `Requires mail_connect`, and UID parameters state that they refer to the selected mailbox (INBOX unless changed with `mail_open_mailbox`); previously this lived only in the server instructions
 - Tool and parameter descriptions tightened to cut the up-front `tools/list` token cost; descriptions that only restated a parameter name are gone. `mail_search`'s `mailbox` description now states the real default (all mailboxes, not INBOX)
+
+## [1.3.3] - 2026-09-13
+
+### Fixed
+- Re-vendored `EnchiladaMultiHTTP`: a response body that fails JSON decoding (e.g. a proxy error page) now completes the request with an error instead of leaving the await loop spinning forever
+- Re-vendored Tortilla `StdioTransport`: in-flight requests are answered before stdin EOF is honoured, and a regular-file stdin degrades to blocking mode (`server < request.json` no longer hangs)
+
+## [1.3.2] - 2026-09-13
+
+### Fixed
+- stdio stalls with hosts that close or never drain their pipes (Zed on Windows): re-vendored Tortilla `StdioTransport` bounds no-EOF read retries, and diagnostics go through `EnchiladaMCP\Logger` (silent by default; `MAIL_MCP_LOG` / `MAIL_MCP_LOG_STDERR` opt-in). Adds `--log`/`--log-level`/`--io-mode` flags
+
+### Changed
 - Re-vendored `OAuthCallbackServer` from Enchilada/Extras master (#49): `handleConnection()` is now fully non-blocking (0-timeout accept loop, per-connection buffered reads, 30s idle reap, 64KB request cap). The authorization-callback listener registered on the transport's event loop can no longer stall the MCP channel when an SSH-forwarded request trickles in
 - IMAP socket I/O is now event-driven (`SocketImapClient`): the socket is permanently non-blocking after connect, all reads run through a buffered pump, and writes complete via a writability wait (large APPEND literals included). `setTransport($loop, $progress)` (wired from `bin/mail-mcp` via `InstanceManager::setImapTransport()`) picks the wait regime per call: with the reactor loop and dispatch fibers, network waits park the fiber so pings keep being answered mid-call; otherwise a bounded 100 ms poll emits progress notifications each slice (the only in-call liveness a modern MCP host gets). STARTTLS handshake and async TCP connect ride the same wait machinery. Residual inherent blocks: DNS resolution and the implicit-TLS handshake (bounded by the connect timeout)
-- New functional I/O test (`SocketImapClientIoTest`) pins the non-blocking engine against an in-process fake IMAP server: split lines, slow responses with progress emission, literals, and peer-drop EOF
+- New functional I/O test (`SocketImapClientIoTest`) pins the non-blocking engine against an in-process fake IMAP server: split lines, slow responses with progress emission, literals, and peer-drop EOF; CI installs `php84-pcntl` for it
 
 ## [1.3.1] - 2026-09-10
 
