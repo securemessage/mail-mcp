@@ -26,7 +26,7 @@ class SearchTools
 	#[McpTool(
 		name: 'mail_search',
 		readOnlyHint: true,
-		description: 'Search messages; all given filters are ANDed. Returns headers only, newest first; use mail_get_message for full content.',
+		description: 'Search messages; all given filters are ANDed. Returns headers only, newest first; use mail_get_message for full content. Requires mail_connect. Each result names its mailbox; UID-based tools act on the selected mailbox, which this leaves as INBOX unless mailbox is given.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [

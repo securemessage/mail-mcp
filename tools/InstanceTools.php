@@ -45,7 +45,7 @@ class InstanceTools
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'Account name from mail_list_instances'],
 			],
 			'required' => ['instance'],
 		]

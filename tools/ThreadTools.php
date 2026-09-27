@@ -28,11 +28,11 @@ class ThreadTools
 	#[McpTool(
 		name: 'mail_get_thread',
 		readOnlyHint: true,
-		description: 'Get the whole conversation containing a message (matched via Message-ID, In-Reply-To, References), oldest first.',
+		description: 'Get the whole conversation containing a message (matched via Message-ID, In-Reply-To, References), oldest first. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Any message in the thread'],
+				'uid' => ['type' => 'integer', 'description' => 'UID of any thread message in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],

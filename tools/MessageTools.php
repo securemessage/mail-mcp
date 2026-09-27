@@ -26,11 +26,11 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_get_message',
-		description: 'Get a message by UID: text and HTML bodies plus attachment metadata.',
+		description: 'Get a message by UID: text and HTML bodies plus attachment metadata. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'mark_read' => ['type' => 'boolean', 'description' => 'Set \\Seen (default false)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
@@ -54,11 +54,11 @@ class MessageTools
 	#[McpTool(
 		name: 'mail_get_headers',
 		readOnlyHint: true,
-		description: 'Get a message\'s raw RFC 5322 header block as transmitted (not decoded, unfolded or deduplicated). Use instead of mail_get_message when exact octets matter (DKIM-Signature, Authentication-Results, Received chain). Filtering by names returns every instance of each, in order.',
+		description: 'Get a message\'s raw RFC 5322 header block as transmitted (not decoded, unfolded or deduplicated). Use instead of mail_get_message when exact octets matter (DKIM-Signature, Authentication-Results, Received chain). Filtering by names returns every instance of each, in order. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'names' => [
 					'type' => 'array',
 					'items' => ['type' => 'string'],
@@ -100,11 +100,11 @@ class MessageTools
 	#[McpTool(
 		name: 'mail_get_messages',
 		readOnlyHint: true,
-		description: 'Get headers and metadata (no body) for several messages; use mail_get_message for full content.',
+		description: 'Get headers and metadata (no body) for several messages; use mail_get_message for full content. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
@@ -127,11 +127,11 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_mark_read',
-		description: 'Mark messages read (sets \\Seen).',
+		description: 'Mark messages read (sets \\Seen). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
@@ -156,11 +156,11 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_mark_unread',
-		description: 'Mark messages unread (clears \\Seen).',
+		description: 'Mark messages unread (clears \\Seen). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
@@ -185,11 +185,11 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_delete_message',
-		description: 'Permanently delete a message (sets \\Deleted and expunges).',
+		description: 'Permanently delete a message (sets \\Deleted and expunges). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],

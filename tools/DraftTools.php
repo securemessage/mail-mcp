@@ -31,7 +31,7 @@ class DraftTools
 	 */
 	#[McpTool(
 		name: 'mail_create_draft',
-		description: 'Save a draft to the IMAP Drafts folder for review before sending. Requires an IMAP connection. Warns if the body mentions an attachment but none is attached.',
+		description: 'Save a draft to the IMAP Drafts folder for review before sending. Requires mail_connect. Warns if the body mentions an attachment but none is attached.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -41,7 +41,7 @@ class DraftTools
 				'html' => ['type' => 'string', 'description' => 'HTML body; with text, sends multipart'],
 				'cc' => ['type' => 'string', 'description' => 'Comma-separated'],
 				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],
-				'in_reply_to' => ['type' => 'integer', 'description' => 'UID of the message being replied to; sets In-Reply-To and Re: subject'],
+				'in_reply_to' => ['type' => 'integer', 'description' => 'UID (selected mailbox, default INBOX) of the message being replied to; sets In-Reply-To and Re: subject'],
 				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
@@ -182,11 +182,11 @@ class DraftTools
 	 */
 	#[McpTool(
 		name: 'mail_update_draft',
-		description: 'Edit a draft in the Drafts folder. Each given field replaces its current value; omitted fields (incl. threading headers and attachments) are kept. Warns if the result mentions an attachment but has none.',
+		description: 'Edit a draft in the Drafts folder. Each given field replaces its current value; omitted fields (incl. threading headers and attachments) are kept. Warns if the result mentions an attachment but has none. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Draft UID'],
+				'uid' => ['type' => 'integer', 'description' => 'Draft UID in the Drafts folder'],
 				'to' => ['type' => 'string', 'description' => 'Comma-separated'],
 				'cc' => ['type' => 'string', 'description' => 'Comma-separated'],
 				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],

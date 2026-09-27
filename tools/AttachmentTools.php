@@ -26,11 +26,11 @@ class AttachmentTools
 	#[McpTool(
 		name: 'mail_get_attachments',
 		readOnlyHint: true,
-		description: 'List a message\'s attachments (part number, filename, type, size) without downloading them.',
+		description: 'List a message\'s attachments (part number, filename, type, size) without downloading them. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
@@ -54,11 +54,11 @@ class AttachmentTools
 	 */
 	#[McpTool(
 		name: 'mail_save_attachment',
-		description: 'Download an attachment to save_path and/or return it base64-encoded (at least one required). Get part_number from mail_get_attachments.',
+		description: 'Download an attachment to save_path and/or return it base64-encoded (at least one required). Get part_number from mail_get_attachments. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'part_number' => ['type' => 'string', 'description' => 'MIME part number'],
 				'save_path' => ['type' => 'string', 'description' => 'Absolute local path'],
 				'return_content' => ['type' => 'boolean', 'description' => 'Include base64 content in the response (default false)'],

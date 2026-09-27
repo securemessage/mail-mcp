@@ -27,11 +27,11 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_move_message',
-		description: 'Move a message to another folder (IMAP COPY + delete). Folder names come from mail_list_mailboxes.',
+		description: 'Move a message to another folder (IMAP COPY + delete). Folder names come from mail_list_mailboxes. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in source_folder'],
 				'target_folder' => ['type' => 'string', 'description' => 'e.g. "Archive", "Trash"'],
 				'source_folder' => ['type' => 'string', 'description' => 'default INBOX'],
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
@@ -66,11 +66,11 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_set_flags',
-		description: 'Add/remove flags on messages: \Seen, \Flagged, \Answered, \Draft, \Deleted, or keywords like $Important (mail_open_mailbox lists those available).',
+		description: 'Add/remove flags on messages: \Seen, \Flagged, \Answered, \Draft, \Deleted, or keywords like $Important (mail_open_mailbox lists those available). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in mailbox'],
 				'add_flags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'e.g. ["\\Flagged", "$Important"]'],
 				'remove_flags' => ['type' => 'array', 'items' => ['type' => 'string']],
 				'mailbox' => ['type' => 'string', 'description' => 'Mailbox holding the messages (default INBOX)'],
@@ -122,7 +122,7 @@ class OrganizationTools
 	 */
 	#[McpTool(
 		name: 'mail_create_mailbox',
-		description: 'Create a mailbox (folder).',
+		description: 'Create a mailbox (folder). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [

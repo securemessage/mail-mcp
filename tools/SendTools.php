@@ -27,7 +27,7 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_send',
-		description: 'Send an email via SMTP (requires an SMTP connection); a copy is saved to Sent when possible. Provide text and/or html. Refuses if the body mentions an attachment but none is attached, unless force=true.',
+		description: 'Send an email via SMTP (requires mail_connect with smtp); a copy is saved to Sent when possible. Provide text and/or html. Refuses if the body mentions an attachment but none is attached, unless force=true.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -137,11 +137,11 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_reply',
-		description: 'Reply to a message with correct In-Reply-To/References and Re: subject. By default replies to all, quotes the original, and SAVES A DRAFT (draft=false sends). Warns if the body mentions an attachment but none is attached.',
+		description: 'Reply to a message with correct In-Reply-To/References and Re: subject. By default replies to all, quotes the original, and SAVES A DRAFT (draft=false sends). Warns if the body mentions an attachment but none is attached. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message to reply to'],
+				'uid' => ['type' => 'integer', 'description' => 'Message to reply to; UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'text' => ['type' => 'string', 'description' => 'Plain-text body'],
 				'html' => ['type' => 'string', 'description' => 'HTML body'],
 				'reply_all' => ['type' => 'boolean', 'description' => 'default true'],

@@ -26,7 +26,7 @@ class MailboxTools
 	#[McpTool(
 		name: 'mail_list_mailboxes',
 		readOnlyHint: true,
-		description: 'List mailboxes (folders). Requires an IMAP connection.',
+		description: 'List mailboxes (folders). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -51,7 +51,7 @@ class MailboxTools
 	#[McpTool(
 		name: 'mail_open_mailbox',
 		readOnlyHint: true,
-		description: 'Select a mailbox for subsequent message operations; returns counts, status and available flags.',
+		description: 'Select a mailbox for subsequent message operations; returns counts, status and available flags. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
