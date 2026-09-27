@@ -51,14 +51,14 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_connect',
-		description: 'Connect to IMAP and SMTP servers for a mail account. For OAuth accounts, authentication is handled automatically (tokens are cached and refreshed silently). Use force_reauth=true to re-authorize if tokens are invalid.',
+		description: 'Connect an account\'s IMAP and/or SMTP session; required before other tools on that account. OAuth tokens are cached and refreshed automatically.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
-				'imap' => ['type' => 'boolean', 'description' => 'Connect IMAP (default: true)'],
-				'smtp' => ['type' => 'boolean', 'description' => 'Connect SMTP (default: true)'],
-				'force_reauth' => ['type' => 'boolean', 'description' => 'Force re-authorization for OAuth accounts (clears cached tokens)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
+				'imap' => ['type' => 'boolean', 'description' => 'default true'],
+				'smtp' => ['type' => 'boolean', 'description' => 'default true'],
+				'force_reauth' => ['type' => 'boolean', 'description' => 'OAuth only: clear cached tokens and re-authorize'],
 			],
 		]
 	)]
@@ -126,11 +126,11 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_disconnect',
-		description: 'Disconnect from IMAP and SMTP servers for a mail account, or all accounts.',
+		description: 'Close IMAP and SMTP sessions for one account or all.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, empty = disconnect all)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit to disconnect all'],
 			],
 		]
 	)]
@@ -155,7 +155,7 @@ class ConnectionTools
 	#[McpTool(
 		name: 'mail_connection_status',
 		readOnlyHint: true,
-		description: 'Show IMAP and SMTP connection status for all configured mail accounts, including OAuth token state.'
+		description: 'IMAP/SMTP connection and OAuth token state of every account.'
 	)]
 	public function mail_connection_status(): array
 	{

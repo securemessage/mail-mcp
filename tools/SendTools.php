@@ -27,19 +27,19 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_send',
-		description: 'Send a new email via SMTP. Requires an active SMTP connection. Provide at least text or html body. Supports file attachments via absolute paths. Blocks sending if the body mentions an attachment but none were included (pass force: true to override).',
+		description: 'Send an email via SMTP (requires mail_connect with smtp); a copy is saved to Sent when possible. Provide text and/or html. Refuses if the body mentions an attachment but none is attached, unless force=true.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'to' => ['type' => 'string', 'description' => 'Recipient email address(es), comma-separated'],
-				'subject' => ['type' => 'string', 'description' => 'Email subject'],
-				'text' => ['type' => 'string', 'description' => 'Plain text email body'],
-				'html' => ['type' => 'string', 'description' => 'HTML email body (optional, creates multipart if both text and html provided)'],
-				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional)'],
-				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
-				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
-				'force' => ['type' => 'boolean', 'description' => 'Send even if the body mentions an attachment but none were included (default: false)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'to' => ['type' => 'string', 'description' => 'Comma-separated addresses'],
+				'subject' => ['type' => 'string'],
+				'text' => ['type' => 'string', 'description' => 'Plain-text body'],
+				'html' => ['type' => 'string', 'description' => 'HTML body; with text, sends multipart'],
+				'cc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths'],
+				'force' => ['type' => 'boolean', 'description' => 'default false'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['to', 'subject'],
 		]
@@ -137,20 +137,20 @@ class SendTools
 	 */
 	#[McpTool(
 		name: 'mail_reply',
-		description: 'Reply to an existing email. Fetches the original message to set proper In-Reply-To and References headers. Creates Re: subject prefix if not already present. By default replies to all original recipients, includes the quoted original message body below the reply text, and saves the reply as a draft for review (set draft: false to send immediately). Supports file attachments via absolute paths. Warns if the reply body mentions an attachment but none were included.',
+		description: 'Reply to a message with correct In-Reply-To/References and Re: subject. By default replies to all, quotes the original, and SAVES A DRAFT (draft=false sends). Warns if the body mentions an attachment but none is attached. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'UID of the message to reply to'],
-				'text' => ['type' => 'string', 'description' => 'Reply text body'],
-				'html' => ['type' => 'string', 'description' => 'Reply HTML body (optional)'],
-				'reply_all' => ['type' => 'boolean', 'description' => 'Reply to all recipients (default: true)'],
-				'cc' => ['type' => 'string', 'description' => 'CC recipients, comma-separated (optional, overrides original CC list)'],
-				'bcc' => ['type' => 'string', 'description' => 'BCC recipients, comma-separated (optional)'],
-				'draft' => ['type' => 'boolean', 'description' => 'Save as draft instead of sending (default: true)'],
-				'include_original' => ['type' => 'boolean', 'description' => 'Include quoted original message in reply (default: true)'],
-				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths to attach (optional)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer', 'description' => 'Message to reply to; UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'text' => ['type' => 'string', 'description' => 'Plain-text body'],
+				'html' => ['type' => 'string', 'description' => 'HTML body'],
+				'reply_all' => ['type' => 'boolean', 'description' => 'default true'],
+				'cc' => ['type' => 'string', 'description' => 'Comma-separated; replaces the original CC list'],
+				'bcc' => ['type' => 'string', 'description' => 'Comma-separated'],
+				'draft' => ['type' => 'boolean', 'description' => 'default true'],
+				'include_original' => ['type' => 'boolean', 'description' => 'Quote the original (default true)'],
+				'attachments' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Absolute file paths'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid', 'text'],
 		]

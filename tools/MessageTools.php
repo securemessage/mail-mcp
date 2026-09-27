@@ -26,13 +26,13 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_get_message',
-		description: 'Retrieve a specific email message by UID. Returns full content including text body, HTML body, and attachment metadata.',
+		description: 'Get a message by UID: text and HTML bodies plus attachment metadata. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID to retrieve'],
-				'mark_read' => ['type' => 'boolean', 'description' => 'Mark message as read when retrieving (default: false)'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'mark_read' => ['type' => 'boolean', 'description' => 'Set \\Seen (default false)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]
@@ -54,17 +54,17 @@ class MessageTools
 	#[McpTool(
 		name: 'mail_get_headers',
 		readOnlyHint: true,
-		description: 'Retrieve the raw RFC 5322 header block of a message, exactly as transmitted — nothing decoded, unfolded, or deduplicated. Use this instead of mail_get_message when the exact octets matter: inspecting DKIM-Signature, Authentication-Results, or the Received chain. Optionally filter to specific header names, which returns every instance of each in the order it appears.',
+		description: 'Get a message\'s raw RFC 5322 header block as transmitted (not decoded, unfolded or deduplicated). Use instead of mail_get_message when exact octets matter (DKIM-Signature, Authentication-Results, Received chain). Filtering by names returns every instance of each, in order. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
 				'names' => [
 					'type' => 'array',
 					'items' => ['type' => 'string'],
-					'description' => 'Header names to return (case-insensitive, e.g. ["DKIM-Signature", "Received"]). Omit for the whole block.',
+					'description' => 'Case-insensitive, e.g. ["DKIM-Signature", "Received"]; omit for the whole block',
 				],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]
@@ -100,12 +100,12 @@ class MessageTools
 	#[McpTool(
 		name: 'mail_get_messages',
 		readOnlyHint: true,
-		description: 'Retrieve multiple email messages by their UIDs. Returns headers and metadata (not full body). Use mail_get_message for full content of a specific message.',
+		description: 'Get headers and metadata (no body) for several messages; use mail_get_message for full content. Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Array of message UIDs to retrieve'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
 		]
@@ -127,12 +127,12 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_mark_read',
-		description: 'Mark one or more messages as read (sets \\Seen flag).',
+		description: 'Mark messages read (sets \\Seen). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Message UIDs to mark as read'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
 		]
@@ -156,12 +156,12 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_mark_unread',
-		description: 'Mark one or more messages as unread (removes \\Seen flag).',
+		description: 'Mark messages unread (clears \\Seen). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Message UIDs to mark as unread'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'UIDs in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uids'],
 		]
@@ -185,12 +185,12 @@ class MessageTools
 	 */
 	#[McpTool(
 		name: 'mail_delete_message',
-		description: 'Delete a message by UID. Sets \\Deleted flag and expunges.',
+		description: 'Permanently delete a message (sets \\Deleted and expunges). Requires mail_connect.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'uid' => ['type' => 'integer', 'description' => 'Message UID to delete'],
-				'instance' => ['type' => 'string', 'description' => 'Mail account name (optional, uses default)'],
+				'uid' => ['type' => 'integer', 'description' => 'UID in the selected mailbox (INBOX unless changed with mail_open_mailbox)'],
+				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 			],
 			'required' => ['uid'],
 		]
