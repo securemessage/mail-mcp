@@ -88,6 +88,28 @@ class OAuthManagerTest extends TestCase
 		$this->assertFileDoesNotExist($tokenFile);
 	}
 
+	public function testClearTokensBacksUpBeforeRemoval(): void
+	{
+		$manager = new OAuthManager($this->tempDir);
+
+		$tokenFile = $this->tempDir . '/backup-test.json';
+		$contents = json_encode(['refresh_token' => 'keep-me']);
+		file_put_contents($tokenFile, $contents);
+
+		$backup = $manager->clearTokens('backup-test');
+
+		$this->assertFileDoesNotExist($tokenFile);
+		$this->assertSame($tokenFile . '.bak', $backup);
+		$this->assertSame($contents, file_get_contents($backup));
+	}
+
+	public function testClearTokensReturnsNullWhenNothingToClear(): void
+	{
+		$manager = new OAuthManager($this->tempDir);
+
+		$this->assertNull($manager->clearTokens('never-existed'));
+	}
+
 	public function testGetAccessTokenReturnsNullWhenNoTokens(): void
 	{
 		$manager = new OAuthManager($this->tempDir);

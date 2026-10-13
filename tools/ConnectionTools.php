@@ -26,6 +26,15 @@ class ConnectionTools
 		$this->oauth = new OAuthManager(null, function($msg) {
 			fwrite(STDERR, "[mail-mcp] {$msg}\n");
 		});
+
+		// IMAP auto-reconnects must go through OAuthManager so a dropped
+		// session gets a silently refreshed access token — never the stale
+		// one cached at the last mail_connect (Google tokens live ~1 hour;
+		// reusing them surfaces as a misleading AUTHENTICATIONFAILED).
+		$this->manager->setImapTokenRefresher(function (string $instance): ?string {
+			$config = $this->manager->getConfig($instance);
+			return $this->oauth->getAccessToken($instance, $config);
+		});
 	}
 
 	/**
@@ -51,14 +60,14 @@ class ConnectionTools
 	 */
 	#[McpTool(
 		name: 'mail_connect',
-		description: 'Connect an account\'s IMAP and/or SMTP session; required before other tools on that account. OAuth tokens are cached and refreshed automatically.',
+		description: 'Connect an account\'s IMAP and/or SMTP session; required before other tools on that account. OAuth tokens are cached and refreshed automatically. Do NOT pass force_reauth for dropped connections or AUTHENTICATIONFAILED errors - those are handled by an automatic silent refresh; just call mail_connect again.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'instance' => ['type' => 'string', 'description' => 'Mail account; omit for default'],
 				'imap' => ['type' => 'boolean', 'description' => 'default true'],
 				'smtp' => ['type' => 'boolean', 'description' => 'default true'],
-				'force_reauth' => ['type' => 'boolean', 'description' => 'OAuth only: clear cached tokens and re-authorize'],
+				'force_reauth' => ['type' => 'boolean', 'description' => 'OAuth only. Silent token refresh is always tried first and usually suffices. Only set true when refresh keeps failing (revoked grant) - re-authorization then needs a browser.'],
 			],
 		]
 	)]
@@ -73,12 +82,21 @@ class ConnectionTools
 		if ($this->manager->isOAuth($name)) {
 			$config = $this->manager->getConfig($name);
 
-			if ($force_reauth) {
-				$this->oauth->clearTokens($resolvedName);
-			}
-
-			// Try silent token retrieval (cached or refresh)
+			// Always try the silent path first (cached token or refresh-token
+			// exchange), even when force_reauth is requested. Clearing valid
+			// credentials before confirming they are broken destroys the
+			// refresh token and forces an unnecessary browser round-trip.
 			$token = $this->oauth->getAccessToken($resolvedName, $config);
+
+			if ($token === null && $force_reauth) {
+				// Silent refresh genuinely failed (revoked/expired grant) —
+				// only now is it safe to clear and start over. The token
+				// file is preserved as <file>.bak just in case.
+				$backup = $this->oauth->clearTokens($resolvedName);
+				if ($backup !== null) {
+					$result['oauth_backup'] = $backup;
+				}
+			}
 
 			if ($token === null) {
 				// Need interactive authorization — use non-blocking flow if transport available
@@ -97,6 +115,9 @@ class ConnectionTools
 				}
 			} else {
 				$result['oauth'] = 'authenticated (cached token)';
+				if ($force_reauth) {
+					$result['oauth_note'] = 'force_reauth requested but silent refresh succeeded; existing tokens were kept (no re-authorization needed)';
+				}
 			}
 		}
 

@@ -2,6 +2,12 @@
 
 All notable changes to the SecureMessage Mail MCP Server are documented here.
 
+## [Unreleased]
+
+### Fixed
+- IMAP auto-reconnect no longer re-authenticates with the stale in-memory access token from the last `mail_connect`. A dropped session now pulls a fresh token through `OAuthManager` (silent refresh) via the new `InstanceManager::setImapTokenRefresher()` hook; when no fresh token can be produced, the error tells the caller to run `mail_connect` instead of surfacing a misleading AUTHENTICATIONFAILED
+- `mail_connect`'s `force_reauth` no longer deletes cached tokens up front. The silent cache/refresh path is always tried first; tokens are cleared only when refresh genuinely fails (revoked grant), and `OAuthManager::clearTokens()` now preserves the token file as `<file>.bak` and reports the backup path in the result
+
 ## [1.3.4] - 2026-09-27
 
 ### Changed
