@@ -260,40 +260,72 @@ class ConnectionTools
 			'started' => time(),
 		];
 
-		// Register callback listener in the transport event loop
+		// Register callback listener in the transport event loop, plus a
+		// periodic drain: addStream only sees the LISTENER, so a request
+		// trickling across SSH/TLS in fragments leaves the accepted
+		// connection sitting in the server's pending buffer until another
+		// connection happens to arrive. The repeat pumps handleConnection()
+		// directly and cancels itself on completion.
+		$repeatId = null;
+		$cleanup = function () use ($callbackServer, $instanceName, &$repeatId) {
+			$callbackServer->close();
+			unset(self::$pendingFlows[$instanceName]);
+			if ($repeatId !== null) {
+				$this->transport?->loop()?->cancel($repeatId);
+				$repeatId = null;
+			}
+		};
+		$finish = function ($stream) use ($callbackServer, $oauthClient, $codeVerifier, $instanceName, $cleanup) {
+			$code = $callbackServer->handleConnection();
+			if ($code !== null) {
+				try {
+					$oauthClient->exchangeCode($code, $codeVerifier);
+					fwrite(STDERR, "[mail-mcp] Authorization successful for '{$instanceName}'.\n");
+
+					if ($this->transport !== null) {
+						$this->transport->sendLogMessage(
+							'info',
+							"Authorization successful for '{$instanceName}'. Tokens saved. Run mail_connect again to connect.",
+							'mail-mcp'
+						);
+					}
+				} catch (\Throwable $e) {
+					fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
+					@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
+				}
+				$cleanup();
+				if ($stream !== null) {
+					$this->transport?->removeStream($stream);
+				}
+				return false; // Remove from event loop
+			}
+			if ($callbackServer->getError()) {
+				fwrite(STDERR, "[mail-mcp] OAuth error: " . $callbackServer->getError() . "\n");
+				$cleanup();
+				if ($stream !== null) {
+					$this->transport?->removeStream($stream);
+				}
+				return false; // Remove from event loop
+			}
+			return true; // Keep listening
+		};
 		$this->transport->addStream(
 			$callbackServer->getSocket(),
-			function ($stream) use ($callbackServer, $oauthClient, $codeVerifier, $instanceName) {
-				$code = $callbackServer->handleConnection();
-				if ($code !== null) {
-					try {
-						$oauthClient->exchangeCode($code, $codeVerifier);
-						fwrite(STDERR, "[mail-mcp] Authorization successful for '{$instanceName}'.\n");
-
-						if ($this->transport !== null) {
-							$this->transport->sendLogMessage(
-								'info',
-								"Authorization successful for '{$instanceName}'. Tokens saved. Run mail_connect again to connect.",
-								'mail-mcp'
-							);
-						}
-					} catch (\Throwable $e) {
-						fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
-						@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
-					}
-					$callbackServer->close();
-					unset(self::$pendingFlows[$instanceName]);
-					return false; // Remove from event loop
-				}
-				if ($callbackServer->getError()) {
-					fwrite(STDERR, "[mail-mcp] OAuth error: " . $callbackServer->getError() . "\n");
-					$callbackServer->close();
-					unset(self::$pendingFlows[$instanceName]);
-					return false; // Remove from event loop
-				}
-				return true; // Keep listening
+			function ($stream) use ($finish) {
+				return $finish($stream);
 			}
 		);
+		$eventLoop = $this->transport->loop();
+		if ($eventLoop !== null) {
+			$repeatId = $eventLoop->repeat(0.25, function () use ($callbackServer, $finish, &$repeatId) {
+				if ($callbackServer->getSocket() === null) {
+					$this->transport?->loop()?->cancel($repeatId);
+					$repeatId = null;
+					return;
+				}
+				$finish($callbackServer->getSocket());
+			});
+		}
 
 		return [
 			'instance' => $instanceName,
