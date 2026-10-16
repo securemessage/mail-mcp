@@ -20,6 +20,12 @@ class ConnectionTools
 	private OAuthManager $oauth;
 	private ?StdioTransport $transport = null;
 
+    /** @var array<string,array{authUrl:string,callbackUrl:string,server:OAuthCallbackServer,started:int}> One pending OAuth flow per instance (single-flight) */
+    private static array $pendingFlows = [];
+
+    /** Seconds a pending flow is resumed before being replaced with a fresh one */
+    private const FLOW_TTL = 900;
+
 	public function __construct(InstanceManager $manager)
 	{
 		$this->manager = $manager;
@@ -198,6 +204,26 @@ class ConnectionTools
 	 */
 	private function startNonBlockingOAuth(string $instanceName, array $config): array
 	{
+		// Single-flight per instance: a pending flow is resumed, never
+		// duplicated. Previously every mail_connect minted a new listener
+		// and a new browser tab; stale tabs then redirected to orphaned or
+		// dead callbacks, which surfaced as hang/timeout at localhost:<port>.
+		$pending = self::$pendingFlows[$instanceName] ?? null;
+		if ($pending !== null) {
+			if (time() - $pending['started'] <= self::FLOW_TTL && $pending['server']->getSocket() !== null) {
+				return [
+					'instance' => $instanceName,
+					'oauth' => 'authorization_pending',
+					'authorize_url' => $pending['authUrl'],
+					'callback_url' => $pending['callbackUrl'],
+					'message' => 'An authorization flow is already in progress. Complete it in the browser tab that was already opened (or open the URL above), then run mail_connect again.',
+				];
+			}
+			// Stale or dead: drop the old listener before starting over
+			$pending['server']->close();
+			unset(self::$pendingFlows[$instanceName]);
+		}
+
 		$oauthClient = $this->oauth->getOAuthClient($instanceName, $config);
 
 		// Generate PKCE pair
@@ -227,6 +253,13 @@ class ConnectionTools
 		// Try to open browser (works locally or via VS Code Remote SSH)
 		OAuthCallbackServer::tryOpenUrl($authUrl);
 
+		self::$pendingFlows[$instanceName] = [
+			'authUrl' => $authUrl,
+			'callbackUrl' => $callbackUrl,
+			'server' => $callbackServer,
+			'started' => time(),
+		];
+
 		// Register callback listener in the transport event loop
 		$this->transport->addStream(
 			$callbackServer->getSocket(),
@@ -249,6 +282,13 @@ class ConnectionTools
 						@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
 					}
 					$callbackServer->close();
+					unset(self::$pendingFlows[$instanceName]);
+					return false; // Remove from event loop
+				}
+				if ($callbackServer->getError()) {
+					fwrite(STDERR, "[mail-mcp] OAuth error: " . $callbackServer->getError() . "\n");
+					$callbackServer->close();
+					unset(self::$pendingFlows[$instanceName]);
 					return false; // Remove from event loop
 				}
 				return true; // Keep listening

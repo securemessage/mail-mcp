@@ -4,7 +4,7 @@
  * OAuth Callback Server
  *
  * Temporary HTTP listener for receiving OAuth 2.0 authorization callbacks.
- * Binds to a random available port on localhost. Fully non-blocking:
+ * Binds to localhost on a fixed or random available port. Fully non-blocking:
  * handleConnection() never blocks — accepted connections are buffered
  * incrementally until a complete HTTP request arrives, so it is safe to
  * call from inside a host event loop's read callback (Tortilla transports,
@@ -57,26 +57,38 @@ class OAuthCallbackServer
 	/**
 	 * Create and start the callback server.
 	 *
-	 * Binds to 127.0.0.1 on a random available port (port 0 = OS assigns).
+	 * Binds to 127.0.0.1 on the given port (0 = OS assigns a random port).
+	 * Pass an array of ports to try each in order until one binds —
+	 * useful for OAuth providers that require exact redirect_uri matching
+	 * against pre-registered callback URLs.
 	 *
-	 * @param string $path  Expected callback path (e.g., '/callback')
-	 * @param string $state Expected state parameter for CSRF validation
-	 * @throws \RuntimeException If socket cannot be created
+	 * @param string    $path  Expected callback path (e.g., '/callback')
+	 * @param string    $state Expected state parameter for CSRF validation
+	 * @param int|int[] $port  Port(s) to try (0 = random, array = try each in order)
+	 * @throws \RuntimeException If no port could be bound
 	 */
-	public function __construct(string $path = '/callback', string $state = '')
+	public function __construct(string $path = '/callback', string $state = '', int|array $port = 0)
 	{
 		$this->path = $path;
 		$this->expectedState = $state;
 
-		$this->socket = @stream_socket_server(
-			"tcp://127.0.0.1:0",
-			$errno,
-			$errstr,
-			STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
-		);
+		$ports = is_array($port) ? $port : [$port];
+
+		foreach ($ports as $p) {
+			$this->socket = @stream_socket_server(
+				"tcp://127.0.0.1:{$p}",
+				$errno,
+				$errstr,
+				STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
+			);
+			if ($this->socket) {
+				break;
+			}
+		}
 
 		if (!$this->socket) {
-			throw new \RuntimeException("OAuthCallbackServer: could not bind: [{$errno}] {$errstr}");
+			$tried = implode(', ', $ports);
+			throw new \RuntimeException("OAuthCallbackServer: could not bind to any port ({$tried}): [{$errno}] {$errstr}");
 		}
 
 		// Determine the assigned port
@@ -411,6 +423,7 @@ class OAuthCallbackServer
 		};
 
 		$html = "<!DOCTYPE html><html><head><title>OAuth Callback</title>"
+			. "<link rel=\"icon\" href=\"data:,\">"
 			. "<style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;"
 			. "align-items:center;min-height:100vh;margin:0;background:#f5f5f5}"
 			. ".card{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);"
