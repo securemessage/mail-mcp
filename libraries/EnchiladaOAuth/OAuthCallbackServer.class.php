@@ -350,16 +350,30 @@ class OAuthCallbackServer
 	 */
 	public static function tryOpenUrl(string $url): bool
 	{
+		// POSIX openers are spawned detached: helper scripts (the VS Code /
+		// Windsurf / Devin Desktop $BROWSER shim launches a node CLI that
+		// round-trips to the client machine) may block for seconds or
+		// minutes waiting on a congested channel. A synchronous @exec()
+		// would then stall the caller mid-OAuth-flow — the callback
+		// listener already exists at that point but the server's event
+		// loop has not started, so browser connections pile up in the
+		// kernel backlog and the consent page hangs until the helper
+		// returns.
+		$detached = static function (string $cmd): void {
+			@exec('(' . $cmd . ') >/dev/null 2>&1 &');
+		};
+
 		// VS Code / Windsurf Remote SSH sets $BROWSER to a helper that opens URLs on the local machine
 		$browser = getenv('BROWSER');
 		if (!empty($browser)) {
-			@exec($browser . ' ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			if ($ret === 0) return true;
+			if (!is_executable($browser)) return false;
+			$detached($browser . ' ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (PHP_OS_FAMILY === 'Darwin') {
-			@exec('open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			return ($ret === 0);
+			$detached('open ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (PHP_OS_FAMILY === 'Windows') {
@@ -370,13 +384,13 @@ class OAuthCallbackServer
 		// Linux/BSD: try VS Code CLI first (works over Remote SSH), then xdg-open
 		$codeBin = getenv('VSCODE_IPC_HOOK_CLI') ? 'code' : (getenv('WINDSURF_IPC_HOOK_CLI') ? 'windsurf' : '');
 		if (!empty($codeBin)) {
-			@exec($codeBin . ' --open-url ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			if ($ret === 0) return true;
+			$detached($codeBin . ' --open-url ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (getenv('DISPLAY') || getenv('WAYLAND_DISPLAY')) {
-			@exec('xdg-open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			return ($ret === 0);
+			$detached('xdg-open ' . escapeshellarg($url));
+			return true;
 		}
 
 		return false;
