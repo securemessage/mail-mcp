@@ -61,9 +61,11 @@ class EnchiladaHTTP {
 	protected $ca_cert;
 	protected $plaintext_auth;
 	protected $verify_ssl = true;
+	protected $unix_socket;
 	protected $last_http_code = 0;
 	protected $last_curl_errno = 0;
 	protected $last_curl_error = '';
+	protected $last_response_headers = array();
 
 	/**
 	 * Create a new instance
@@ -156,6 +158,15 @@ class EnchiladaHTTP {
 
 		$ch = curl_init();
 
+		// Capture response headers; CURLOPT_FOLLOWLOCATION replays one
+		// header block per hop, and a new "HTTP/" status line resets the
+		// block so only the final response's headers are kept.
+		$this->last_response_headers = array();
+		curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, string $line) {
+			$this->last_response_headers = self::parseHeaderLine($this->last_response_headers, $line);
+			return strlen($line);
+		});
+
 		// Determine effective timeout
 		$effectiveTimeout = $timeout ?? $this->request_timeout;
 
@@ -184,6 +195,11 @@ class EnchiladaHTTP {
 		// Plain text HTTP authemtication
 		if(!empty($this->plaintext_auth)){
 			curl_setopt($ch, CURLOPT_USERPWD, $this->plaintext_auth);
+		}
+
+		// Unix domain socket; the URL host only fills the Host header
+		if(!empty($this->unix_socket)){
+			curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, $this->unix_socket);
 		}
 
 		$result = curl_exec($ch);
@@ -281,6 +297,42 @@ class EnchiladaHTTP {
 	}
 
 	/**
+	 * Returns the response headers from the most recent request.
+	 *
+	 * @return array lowercase header name => list of values (repeated
+	 *              headers such as Set-Cookie are never merged)
+	 */
+	public function getLastResponseHeaders(): array {
+		return $this->last_response_headers;
+	}
+
+	/**
+	 * Parse one raw header line into the name => list-of-values map.
+	 * A new "HTTP/" status line (redirect hop) resets the block; the
+	 * status line itself and blank lines are dropped.
+	 *
+	 * @param array  $headers Current header map
+	 * @param string $line    Raw line as passed to CURLOPT_HEADERFUNCTION
+	 * @return array Updated header map
+	 */
+	protected static function parseHeaderLine(array $headers, string $line): array {
+		$line = rtrim($line, "\r\n");
+		if ($line === '') {
+			return $headers;
+		}
+		if (stripos($line, 'HTTP/') === 0) {
+			return array();
+		}
+		$colon = strpos($line, ':');
+		if ($colon === false) {
+			return $headers;
+		}
+		$name = strtolower(trim(substr($line, 0, $colon)));
+		$headers[$name][] = trim(substr($line, $colon + 1));
+		return $headers;
+	}
+
+	/**
 	 * Sets the HTTP Basic Authentication credentials
 	 * 
 	 * @param string $username
@@ -306,6 +358,18 @@ class EnchiladaHTTP {
 	 */
 	public function setVerifySsl(bool $verify){
 		$this->verify_ssl = $verify;
+	}
+
+	/**
+	 * Connect through a Unix domain socket instead of TCP.
+	 *
+	 * The endpoint URL still supplies the scheme, path and Host header
+	 * (e.g. http://localhost); the connection goes to the socket.
+	 *
+	 * @param string|null $path Socket path, or null for TCP
+	 */
+	public function setUnixSocket(?string $path){
+		$this->unix_socket = $path;
 	}
 
 	/**

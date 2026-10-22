@@ -57,6 +57,9 @@ class Oauth3LO {
 	/** @var string */
 	protected $token_file;
 
+	/** @var array|null [mtime, size, inode] of the token file as last read or written */
+	protected $token_file_stamp = null;
+
 	/**
 	 * Create a new OAuth 3LO state/logic holder.
 	 *
@@ -220,6 +223,7 @@ class Oauth3LO {
 	 * @return array Fields to POST urlencoded to the token endpoint.
 	 */
 	public function buildRefreshPayload(): array {
+		$this->syncTokenFile();
 		$data = [
 			'grant_type' => 'refresh_token',
 			'client_id' => $this->client_id,
@@ -306,6 +310,7 @@ class Oauth3LO {
 	 * @return string|null
 	 */
 	public function getFreshAccessToken(): ?string {
+		$this->syncTokenFile();
 		if (!empty($this->access_token) && !empty($this->expires_at) && $this->expires_at > (time() + 60)) {
 			return $this->access_token;
 		}
@@ -316,12 +321,14 @@ class Oauth3LO {
 	 * Whether a refresh grant can be attempted.
 	 */
 	public function hasRefreshToken(): bool {
+		$this->syncTokenFile();
 		return !empty($this->refresh_token);
 	}
 
 	/**
-	 * Re-read tokens from the persistence file (another process, e.g. a
-	 * CLI auth tool, may have written newer tokens since construction).
+	 * Re-read tokens from the persistence file unconditionally. Token
+	 * accessors already pick up a file another process rewrote (a CLI
+	 * auth tool, a detached callback helper) by checking its stat.
 	 */
 	public function reloadTokens(): void {
 		$this->loadTokens();
@@ -356,6 +363,7 @@ class Oauth3LO {
 	 * @return string|null
 	 */
 	public function getRefreshToken(): ?string {
+		$this->syncTokenFile();
 		return $this->refresh_token;
 	}
 
@@ -365,6 +373,7 @@ class Oauth3LO {
 	 * @return string|null
 	 */
 	public function getGrantedScope(): ?string {
+		$this->syncTokenFile();
 		return $this->granted_scope;
 	}
 
@@ -397,13 +406,38 @@ class Oauth3LO {
 
 		file_put_contents($this->token_file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
 		chmod($this->token_file, 0600);
+		$this->token_file_stamp = $this->tokenFileStamp();
+	}
+
+	/**
+	 * Reload tokens when the persistence file changed since this instance
+	 * last read or wrote it (detected by mtime, size and inode; two
+	 * rewrites within the same second that keep the size are not seen).
+	 */
+	protected function syncTokenFile(): void {
+		if ($this->tokenFileStamp() !== $this->token_file_stamp) {
+			$this->loadTokens();
+		}
+	}
+
+	/**
+	 * [mtime, size, inode] of the token file, or null when it is absent.
+	 */
+	protected function tokenFileStamp(): ?array {
+		clearstatcache(true, $this->token_file);
+		if (!is_file($this->token_file)) {
+			return null;
+		}
+		$stat = stat($this->token_file);
+		return [$stat['mtime'], $stat['size'], $stat['ino']];
 	}
 
 	/**
 	 * Load tokens from the persistence file.
 	 */
 	protected function loadTokens(): void {
-		if (!file_exists($this->token_file)) {
+		$this->token_file_stamp = $this->tokenFileStamp();
+		if ($this->token_file_stamp === null) {
 			return;
 		}
 

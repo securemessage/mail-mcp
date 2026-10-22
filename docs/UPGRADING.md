@@ -6,18 +6,18 @@ Developer/agent-facing. Read this **before** touching `libraries/`,
 
 ## 1. The transport split (September 2026) changed the rules
 
-Three independent libraries, vendored byte-identical from canonical
-upstream **master** (pull first, then copy — never from another
-consumer's tree):
+Vendored byte-identical from canonical upstream **master** (pull
+first, then copy, never from another consumer's tree):
 
 | Vendored dir | Source | What it is |
 |---|---|---|
 | `libraries/EnchiladaMCP/` | `Enchilada/Extras` MCP/ | Protocol core. No I/O, no loop, no framework deps. |
-| `libraries/Enchilada/Tortilla/` | `Enchilada/Tortilla` src/ | Wire transports, `EventLoop` port, `ComalEventLoop`, `HttpClient`, `RequestEra`, `Oauth3LOClient`. |
-| `libraries/EnchiladaHTTP/` | Extras HTTP/ | Blocking engine (legacy global class). **Frozen.** |
-| `libraries/EnchiladaMultiHTTP/` | Extras HTTP/ | curl_multi engine (legacy global class). **Frozen.** |
+| `libraries/Enchilada/Tortilla/` | `Enchilada/Tortilla` src/ | Wire transports, `EventLoop` port, `ComalEventLoop`, `HttpClient`, `RequestEra`, `Oauth3LOClient`, `OAuthCallbackHelper`. |
+| `libraries/EnchiladaCurl/`, `libraries/EnchiladaMultiHTTP/`, `libraries/EnchiladaWorkerHTTP/` | Extras HTTP/ | curl clients on the abstract `EnchiladaCurl` base (multi+tick and worker-pool executors). Vendor together with Tortilla. |
+| `libraries/EnchiladaHTTP/` | Extras HTTP/ | Standalone blocking client (legacy global class). **Frozen.** |
 | `libraries/Enchilada/Comal/` | `Enchilada/Comal` | Reactor (kqueue/ev). Presence opts stdio into reactor mode. |
 | `libraries/EnchiladaOAuth/` | Extras OAuth/ | Pure `Oauth3LO` core (no HTTP types) + legacy wrapper + non-blocking `OAuthCallbackServer`. |
+| `tests/enchilada-curl/` | `daniel/engineering-docs` enchilada-extras/curl-behaviour-suite/ | curl behaviour suite + door lint. Run in CI against `libraries/`; re-vendor with HTTP/. |
 
 ## 2. Non-negotiables
 
@@ -67,13 +67,13 @@ consumer's tree):
   documented residual blocks (bounded by the connect timeout).
 - `SocketSmtpClient` is still the old blocking shape — apply the
   `SocketImapClient` pattern when it's next touched.
-- Pending upstream: once `Enchilada/Extras#49` (non-blocking
-  `OAuthCallbackServer`) merges, re-vendor `libraries/EnchiladaOAuth/`
-  from that master with a byte-identity check.
 
 ## 4. Regression gates (before every commit)
 
 - `phpunit` — all tests green.
+- Curl behaviour suite + door lint:
+  `php tests/enchilada-curl/run.php --lib=libraries` then
+  `php tests/enchilada-curl/lint_curl_door.php libraries/EnchiladaCurl libraries/EnchiladaMultiHTTP libraries/EnchiladaWorkerHTTP libraries/Enchilada/Tortilla`.
 - Liveness suite:
   `php ~/Documents/Projects/engineering-docs/enchilada-extras/mcp-liveness-suite/transport-liveness.php --lib=libraries`
   (Comal present → reactor-mode assertions apply) — 9/9.

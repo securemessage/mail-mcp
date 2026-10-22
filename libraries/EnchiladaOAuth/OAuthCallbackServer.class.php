@@ -4,17 +4,17 @@
  * OAuth Callback Server
  *
  * Temporary HTTP listener for receiving OAuth 2.0 authorization callbacks.
- * Binds to a random available port on localhost. Fully non-blocking:
+ * Binds to localhost on a fixed or random available port. Fully non-blocking:
  * handleConnection() never blocks — accepted connections are buffered
  * incrementally until a complete HTTP request arrives, so it is safe to
  * call from inside a host event loop's read callback (Tortilla transports,
  * Comal reactor, stream_select drivers) without starving the channel.
  *
  * Usage:
- *   $server = new OAuthCallbackServer('/callback', $state);
+ *   $server = new OAuthCallbackServer('/callback', $state, range(8901, 8920));
  *   echo "Authorize at: " . $authUrl . "&redirect_uri=" . $server->getCallbackUrl();
- *   // In event loop: watch $server->getWatchSockets()
- *   // When readable: $code = $server->handleConnection();
+ *   // Event loop: $server->setWatchHooks($watch, $unwatch); each watcher
+ *   //   calls $code = $server->handleConnection();
  *   // Standalone CLI: $code = $server->waitForCallback($timeout);
  *
  * Software License Agreement (BSD License)
@@ -54,29 +54,47 @@ class OAuthCallbackServer
 	/** Seconds a connection may stay incomplete before reaping */
 	private const IDLE_TIMEOUT = 30.0;
 
+	/** @var \Closure|null function($stream): void, called when a socket needs a read watcher */
+	private ?\Closure $watchHook = null;
+
+	/** @var \Closure|null function($stream): void, called before a watched socket is closed */
+	private ?\Closure $unwatchHook = null;
+
 	/**
 	 * Create and start the callback server.
 	 *
-	 * Binds to 127.0.0.1 on a random available port (port 0 = OS assigns).
+	 * Binds to 127.0.0.1 on the given port (0 = OS assigns a random port).
+	 * Pass an array of ports to try each in order until one binds —
+	 * useful for OAuth providers that require exact redirect_uri matching
+	 * against pre-registered callback URLs.
 	 *
-	 * @param string $path  Expected callback path (e.g., '/callback')
-	 * @param string $state Expected state parameter for CSRF validation
-	 * @throws \RuntimeException If socket cannot be created
+	 * @param string    $path  Expected callback path (e.g., '/callback')
+	 * @param string    $state Expected state parameter for CSRF validation
+	 * @param int|int[] $port  Port(s) to try (0 = random, array = try each in order)
+	 * @throws \RuntimeException If no port could be bound
 	 */
-	public function __construct(string $path = '/callback', string $state = '')
+	public function __construct(string $path = '/callback', string $state = '', int|array $port = 0)
 	{
 		$this->path = $path;
 		$this->expectedState = $state;
 
-		$this->socket = @stream_socket_server(
-			"tcp://127.0.0.1:0",
-			$errno,
-			$errstr,
-			STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
-		);
+		$ports = is_array($port) ? $port : [$port];
+
+		foreach ($ports as $p) {
+			$this->socket = @stream_socket_server(
+				"tcp://127.0.0.1:{$p}",
+				$errno,
+				$errstr,
+				STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
+			);
+			if ($this->socket) {
+				break;
+			}
+		}
 
 		if (!$this->socket) {
-			throw new \RuntimeException("OAuthCallbackServer: could not bind: [{$errno}] {$errstr}");
+			$tried = implode(', ', $ports);
+			throw new \RuntimeException("OAuthCallbackServer: could not bind to any port ({$tried}): [{$errno}] {$errstr}");
 		}
 
 		// Determine the assigned port
@@ -141,6 +159,38 @@ class OAuthCallbackServer
 	}
 
 	/**
+	 * Integrate with an event loop without depending on one.
+	 *
+	 * $watch($stream) is called for every socket that needs a read
+	 * watcher: the listener (and any pending connection) right away, then
+	 * each connection as it is accepted. $unwatch($stream) is called
+	 * before a watched socket is closed. Each watcher's callback should
+	 * call handleConnection(). Watching only the listener misses requests
+	 * that arrive in several segments (SSH tunnels): the accepted
+	 * connection becomes readable again while the listener stays quiet.
+	 *
+	 * Idle connections are reaped when any watched socket fires; a
+	 * connection that never sends anything is closed by close().
+	 *
+	 * Example (Tortilla StdioTransport):
+	 *   $server->setWatchHooks(
+	 *       fn($s) => $transport->addStream($s, fn() => $onReadable()),
+	 *       fn($s) => $transport->removeStream($s),
+	 *   );
+	 *
+	 * @param callable $watch   function($stream): void
+	 * @param callable $unwatch function($stream): void
+	 */
+	public function setWatchHooks(callable $watch, callable $unwatch): void
+	{
+		$this->watchHook = $watch(...);
+		$this->unwatchHook = $unwatch(...);
+		foreach ($this->getWatchSockets() as $stream) {
+			($this->watchHook)($stream);
+		}
+	}
+
+	/**
 	 * Service the listener and any pending connections — never blocks.
 	 *
 	 * Call this whenever getWatchSockets() reports readability. Accepts
@@ -158,6 +208,9 @@ class OAuthCallbackServer
 		while ($this->socket && ($conn = @stream_socket_accept($this->socket, 0)) !== false) {
 			stream_set_blocking($conn, false);
 			$this->pending[(int)$conn] = ['conn' => $conn, 'buf' => '', 'since' => microtime(true)];
+			if ($this->watchHook !== null) {
+				($this->watchHook)($conn);
+			}
 		}
 
 		// Pump each connection's buffer; process only complete requests
@@ -257,6 +310,9 @@ class OAuthCallbackServer
 	 */
 	private function dropPending(array $p, int $id): void
 	{
+		if ($this->unwatchHook !== null) {
+			($this->unwatchHook)($p['conn']);
+		}
 		@fclose($p['conn']);
 		unset($this->pending[$id]);
 	}
@@ -338,16 +394,28 @@ class OAuthCallbackServer
 	 */
 	public static function tryOpenUrl(string $url): bool
 	{
-		// VS Code / Windsurf Remote SSH sets $BROWSER to a helper that opens URLs on the local machine
+		// POSIX openers run detached: IDE $BROWSER helpers (VS Code /
+		// Windsurf / Devin Desktop shims) can block for minutes, and the
+		// caller must not wait on them. The helper gets /dev/null for
+		// stdio, so it cannot hold the host's protocol pipes open, and
+		// descriptors 3-9 closed (POSIX sh redirects single digits only),
+		// which covers the callback listener in a typical server process.
+		$detached = static function (string $cmd): void {
+			@exec('(exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-; exec ' . $cmd . ') </dev/null >/dev/null 2>&1 &');
+		};
+
+		// VS Code / Windsurf Remote SSH sets $BROWSER to a helper that
+		// opens URLs on the local machine; it may be a path, a command
+		// name on PATH, or a command with arguments
 		$browser = getenv('BROWSER');
 		if (!empty($browser)) {
-			@exec($browser . ' ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			if ($ret === 0) return true;
+			$detached($browser . ' ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (PHP_OS_FAMILY === 'Darwin') {
-			@exec('open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			return ($ret === 0);
+			$detached('open ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (PHP_OS_FAMILY === 'Windows') {
@@ -358,13 +426,13 @@ class OAuthCallbackServer
 		// Linux/BSD: try VS Code CLI first (works over Remote SSH), then xdg-open
 		$codeBin = getenv('VSCODE_IPC_HOOK_CLI') ? 'code' : (getenv('WINDSURF_IPC_HOOK_CLI') ? 'windsurf' : '');
 		if (!empty($codeBin)) {
-			@exec($codeBin . ' --open-url ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			if ($ret === 0) return true;
+			$detached($codeBin . ' --open-url ' . escapeshellarg($url));
+			return true;
 		}
 
 		if (getenv('DISPLAY') || getenv('WAYLAND_DISPLAY')) {
-			@exec('xdg-open ' . escapeshellarg($url) . ' 2>/dev/null', $output, $ret);
-			return ($ret === 0);
+			$detached('xdg-open ' . escapeshellarg($url));
+			return true;
 		}
 
 		return false;
@@ -379,6 +447,9 @@ class OAuthCallbackServer
 			$this->dropPending($p, $id);
 		}
 		if ($this->socket) {
+			if ($this->unwatchHook !== null) {
+				($this->unwatchHook)($this->socket);
+			}
 			fclose($this->socket);
 			$this->socket = null;
 		}
@@ -411,6 +482,7 @@ class OAuthCallbackServer
 		};
 
 		$html = "<!DOCTYPE html><html><head><title>OAuth Callback</title>"
+			. "<link rel=\"icon\" href=\"data:,\">"
 			. "<style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;"
 			. "align-items:center;min-height:100vh;margin:0;background:#f5f5f5}"
 			. ".card{background:white;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);"
