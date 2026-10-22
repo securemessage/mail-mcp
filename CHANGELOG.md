@@ -4,6 +4,8 @@ All notable changes to the SecureMessage Mail MCP Server are documented here.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-22
+
 ### Changed
 - Re-vendored the Enchilada libraries onto the merged Extras HTTP split (master 48fc849): new `EnchiladaCurl` abstract base, with `EnchiladaMultiHTTP` and the new `EnchiladaWorkerHTTP` (worker-pool executor) built on it; `EnchiladaHTTP`, `EnchiladaMCP` (adds elicitation, completion and prompt classes), `EnchiladaOAuth`, Tortilla (adds `OAuthCallbackHelper`) and Comal refreshed from canonical upstream sources
 
