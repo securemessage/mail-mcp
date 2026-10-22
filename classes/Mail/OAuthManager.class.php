@@ -207,14 +207,24 @@ class OAuthManager
 
 	/**
 	 * Clear stored tokens for an instance (force re-authorization).
+	 *
+	 * The token file is first copied to <file>.bak — a deleted refresh
+	 * token means a full browser round-trip, so clearing must never be
+	 * unrecoverable.
+	 *
+	 * @return string|null Path of the backup file, or null when nothing was cleared
 	 */
-	public function clearTokens(string $instanceName): void
+	public function clearTokens(string $instanceName): ?string
 	{
 		$tokenFile = $this->getTokenFile($instanceName);
+		$backup = null;
 		if (file_exists($tokenFile)) {
+			$backup = $tokenFile . '.bak';
+			@copy($tokenFile, $backup);
 			unlink($tokenFile);
 		}
 		unset($this->oauthClients[$instanceName]);
+		return $backup;
 	}
 
 	/**

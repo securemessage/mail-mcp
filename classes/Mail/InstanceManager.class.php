@@ -27,11 +27,14 @@ class InstanceManager
 	/** @var array<string,SmtpClientInterface> Cached SMTP clients */
 	private array $smtpClients = [];
 
-	/** @var array<string,string|null> Stored OAuth tokens for auto-reconnect */
+	/** @var array<string,string|null> Stored OAuth tokens for auto-reconnect (last-resort fallback) */
 	private array $imapTokens = [];
 
 	/** @var array<string,bool> Tracks which instances have been successfully connected */
 	private array $imapConnected = [];
+
+	/** @var \Closure|null fn(string $instance): ?string — fetches a fresh OAuth access token for reconnects */
+	private $imapTokenRefresher = null;
 
 	/** @var \Enchilada\Tortilla\EventLoop|null Reactor loop given to every IMAP client (null = bounded poll) */
 	private $imapLoop = null;
@@ -133,6 +136,23 @@ class InstanceManager
 		}
 
 		return $this->imapClients[$name];
+	}
+
+	/**
+	 * Set the OAuth token refresher consulted on every IMAP reconnect.
+	 *
+	 * Access tokens are short-lived (~1 hour for Google), so a reconnect
+	 * must never reuse the token captured at the last mail_connect call —
+	 * that is how a healthy refresh token ends up reported as
+	 * AUTHENTICATIONFAILED. The refresher is expected to return a fresh
+	 * token (silently refreshing when needed) or null when interactive
+	 * authorization is required.
+	 *
+	 * @param callable|null $refresher fn(string $instance): ?string
+	 */
+	public function setImapTokenRefresher(?callable $refresher): void
+	{
+		$this->imapTokenRefresher = $refresher === null ? null : $refresher(...);
 	}
 
 	/**
@@ -362,14 +382,31 @@ class InstanceManager
 		$authType = $config['auth_type'] ?? 'basic';
 
 		if ($authType === 'xoauth2') {
-			$token = $this->imapTokens[$name] ?? null;
+			// Fetch a fresh access token — the one captured at the last
+			// mail_connect may have expired hours ago and would surface as
+			// a misleading AUTHENTICATIONFAILED.
+			$token = null;
+			if ($this->imapTokenRefresher !== null) {
+				try {
+					$token = ($this->imapTokenRefresher)($name);
+				} catch (\Throwable $e) {
+					$token = null;
+				}
+				// When a refresher is wired, its null means the refresh grant
+				// itself is gone — retrying the stale token would only produce
+				// a misleading AUTHENTICATIONFAILED, so fail with guidance.
+			} else {
+				// No refresher wired (standalone use): best-effort stored token
+				$token = $this->imapTokens[$name] ?? null;
+			}
 			if (empty($token)) {
 				unset($this->imapConnected[$name]);
 				throw new \RuntimeException(
-					"IMAP connection dropped for '{$name}' and no OAuth token available for reconnect. Run mail_connect to re-authorize."
+					"IMAP connection dropped for '{$name}' and OAuth authorization is required to reconnect. Run mail_connect to re-authorize."
 				);
 			}
 			$client->authenticateXOAuth2($config['username'], $token);
+			$this->imapTokens[$name] = $token; // keep the fresh token for future fallbacks
 		} else {
 			$client->login($config['username'], $config['password'] ?? '');
 		}
