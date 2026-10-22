@@ -20,6 +20,12 @@ class ConnectionTools
 	private OAuthManager $oauth;
 	private ?StdioTransport $transport = null;
 
+    /** @var array<string,array{authUrl:string,callbackUrl:string,server:OAuthCallbackServer,started:int}> One pending OAuth flow per instance (single-flight) */
+    private static array $pendingFlows = [];
+
+    /** Seconds a pending flow is resumed before being replaced with a fresh one */
+    private const FLOW_TTL = 900;
+
 	public function __construct(InstanceManager $manager)
 	{
 		$this->manager = $manager;
@@ -198,6 +204,26 @@ class ConnectionTools
 	 */
 	private function startNonBlockingOAuth(string $instanceName, array $config): array
 	{
+		// Single-flight per instance: a pending flow is resumed, never
+		// duplicated. Previously every mail_connect minted a new listener
+		// and a new browser tab; stale tabs then redirected to orphaned or
+		// dead callbacks, which surfaced as hang/timeout at localhost:<port>.
+		$pending = self::$pendingFlows[$instanceName] ?? null;
+		if ($pending !== null) {
+			if (time() - $pending['started'] <= self::FLOW_TTL && $pending['server']->getSocket() !== null) {
+				return [
+					'instance' => $instanceName,
+					'oauth' => 'authorization_pending',
+					'authorize_url' => $pending['authUrl'],
+					'callback_url' => $pending['callbackUrl'],
+					'message' => 'An authorization flow is already in progress. Complete it in the browser tab that was already opened (or open the URL above), then run mail_connect again.',
+				];
+			}
+			// Stale or dead: drop the old listener before starting over
+			$pending['server']->close();
+			unset(self::$pendingFlows[$instanceName]);
+		}
+
 		$oauthClient = $this->oauth->getOAuthClient($instanceName, $config);
 
 		// Generate PKCE pair
@@ -227,32 +253,50 @@ class ConnectionTools
 		// Try to open browser (works locally or via VS Code Remote SSH)
 		OAuthCallbackServer::tryOpenUrl($authUrl);
 
-		// Register callback listener in the transport event loop
-		$this->transport->addStream(
-			$callbackServer->getSocket(),
-			function ($stream) use ($callbackServer, $oauthClient, $codeVerifier, $instanceName) {
-				$code = $callbackServer->handleConnection();
-				if ($code !== null) {
-					try {
-						$oauthClient->exchangeCode($code, $codeVerifier);
-						fwrite(STDERR, "[mail-mcp] Authorization successful for '{$instanceName}'.\n");
+		self::$pendingFlows[$instanceName] = [
+			'authUrl' => $authUrl,
+			'callbackUrl' => $callbackUrl,
+			'server' => $callbackServer,
+			'started' => time(),
+		];
 
-						if ($this->transport !== null) {
-							$this->transport->sendLogMessage(
-								'info',
-								"Authorization successful for '{$instanceName}'. Tokens saved. Run mail_connect again to connect.",
-								'mail-mcp'
-							);
-						}
-					} catch (\Throwable $e) {
-						fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
-						@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
+		// Watch every callback-server socket, not only the listener: a
+		// request trickling across SSH/TLS in fragments leaves an accepted
+		// connection readable again while the listener stays quiet.
+		// OAuthCallbackServer::setWatchHooks announces those sockets;
+		// $unwatch fires before the server closes them.
+		$cleanup = function () use ($callbackServer, $instanceName) {
+			$callbackServer->close();
+			unset(self::$pendingFlows[$instanceName]);
+		};
+		$onReadable = function ($stream) use ($callbackServer, $oauthClient, $codeVerifier, $instanceName, $cleanup) {
+			$code = $callbackServer->handleConnection();
+			if ($code !== null) {
+				try {
+					$oauthClient->exchangeCode($code, $codeVerifier);
+					fwrite(STDERR, "[mail-mcp] Authorization successful for '{$instanceName}'.\n");
+
+					if ($this->transport !== null) {
+						$this->transport->sendLogMessage(
+							'info',
+							"Authorization successful for '{$instanceName}'. Tokens saved. Run mail_connect again to connect.",
+							'mail-mcp'
+						);
 					}
-					$callbackServer->close();
-					return false; // Remove from event loop
+				} catch (\Throwable $e) {
+					fwrite(STDERR, "[mail-mcp] Token exchange failed: " . $e->getMessage() . "\n");
+					@file_put_contents('/tmp/mail-mcp-oauth-debug.log', date('c') . " Token exchange failed for '{$instanceName}': " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
 				}
-				return true; // Keep listening
+				$cleanup();
+			} elseif ($callbackServer->getError()) {
+				fwrite(STDERR, "[mail-mcp] OAuth error: " . $callbackServer->getError() . "\n");
+				$cleanup();
 			}
+			return true;
+		};
+		$callbackServer->setWatchHooks(
+			fn($stream) => $this->transport->addStream($stream, $onReadable),
+			fn($stream) => $this->transport->removeStream($stream),
 		);
 
 		return [
